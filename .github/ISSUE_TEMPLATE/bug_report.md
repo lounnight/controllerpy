@@ -38,6 +38,6 @@ assignees: ""
 
 ## More Notes
 
-[ ] I'm like to fix it by me
+- [ ] I'm like to fix it by me
 
 <!-- Optional but will be good if you write:)-->

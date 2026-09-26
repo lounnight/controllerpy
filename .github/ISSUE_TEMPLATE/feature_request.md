@@ -21,6 +21,6 @@ the user need rather than the implementation. -->
 
 ## Notes
 
-[ ] I'm like to make it by me
+- [ ] I'm like to make it by me
 
 <!-- Anything else: links, mockups, references, related issues, etc. -->
