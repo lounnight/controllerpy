@@ -491,9 +491,10 @@ chain is required.
 
 ## Roadmap
 
-* More boards (Nano, Mega, ESP32) and a `--board` matrix in the test suite.
+* Improve CLI
 * More Arduino libraries in the registry (and a `Servo`-style API map).
 * Structs/lists of objects, `str` helpers and a small `String` builder.
+* More boards (Nano, Mega, ESP32) and a `--board` matrix in the test suite.
 
 ## License
 
