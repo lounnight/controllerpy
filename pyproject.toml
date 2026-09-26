@@ -30,7 +30,7 @@ micropy = "micropy.cli:main"
 [tool.setuptools]
 # ``src/`` *is* the micropy package: the directory is mapped to the import
 # name, so the sources stay flat and no nested package directory is needed.
-packages = ["micropy", "micropy.compiler", "micropy.compiler.validator", "micropy.runtime"]
+packages = ["micropy", "micropy.compiler", "micropy.compiler.generator", "micropy.compiler.validator", "micropy.runtime"]
 package-dir = { micropy = "src" }
 
 [tool.setuptools.package-data]

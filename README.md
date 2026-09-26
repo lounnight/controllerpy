@@ -364,7 +364,7 @@ main.py
    |  validator/    subset + symbol tables  file:line:col errors, no codegen
    v
  typed AST
-   |  generator.py   CodeWriter + precedence aware printer
+   |  generator/    CodeWriter + precedence aware printer
    v
   build/main.ino
    |  arduino.py     arduino-cli compile / upload (optional)
@@ -413,7 +413,14 @@ micropy/
 │   │   │   ├── ast_utils.py      AST helpers + unsupported-feature policy
 │   │   │   ├── collector.py      collect definitions, finalise types
 │   │   │   └── analyzer.py       body analysis, type inference
-│   │   ├── generator.py        stage 3: AST -> C++
+│   │   ├── generator/          stage 3: AST -> C++
+│   │   │   ├── generator.py        the emission passes, in order
+│   │   │   ├── formatting.py       CodeWriter + cpp string literals
+│   │   │   ├── operators.py       C++ operator tokens + precedence
+│   │   │   ├── ordering.py        class dependency order
+│   │   │   ├── expressions.py     precedence aware expression printer
+│   │   │   ├── declarations.py    variables, parameters, objects
+│   │   │   └── statements.py      bodies, control flow, classes
 │   │   └── compiler.py         the three-stage facade
 │   └── runtime/api.pyi         IDE stub (never uploaded)
 └── tests/                      pytest suite + expected C++ snapshots
@@ -430,6 +437,12 @@ was found, `context` holds the result for stage 3, and `validator` + `analyzer`
 are the two phases that fill it in - which is why none of them import each
 other cyclically. `micropy.compiler` re-exports `CompileContext` and `Validator`
 if you want to drive the stage yourself.
+
+Stage 3 is just as one-directional: `formatting` and `operators` hold the C++
+vocabulary, `ordering` works out which classes come first, then `expressions`
+prints expressions, `declarations` prints what they are stored in, `statements`
+prints the bodies that hold both, and `generator.py` runs the emission passes
+in the only order that produces valid C++.
 
 ## Extending
 
