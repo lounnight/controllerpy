@@ -211,7 +211,7 @@ Missing required function: loop()
 | `a ** b` | `pow(a, b)` | assigning to an int truncates |
 | `a & b`, `a \| b`, `a ^ b`, `a << b`, `a >> b` | same | integers only |
 | `== != < > <= >=` | same | `0 < x < 10` becomes `0 < x && x < 10` |
-| `and`, `or`, `not` | `&&`, `\|\|`, `!` | parentheses added only where needed |
+| `and`, `or`, `not` | `&&`, `\|\|`, `!` | grouping kept and extended where needed |
 | `a if cond else b` | `cond ? a : b` | |
 | `-a`, `+a`, `~a` | same | |
 | `len(array)`, `array[i]` | `sizeof(...)` / `array[i]` | arrays from list literals |
@@ -219,6 +219,11 @@ Missing required function: loop()
 
 Comparisons may be chained, but a chained comparison may not contain a
 function call (it would be evaluated twice).
+
+Grouping parentheses are kept: a parenthesised sub-expression stays
+parenthesised in the C++ (`(a + b) * c` does not become `a + b * c`), and
+parentheses the translation needs are added where Python's grouping would
+otherwise be lost.
 
 ### Variables and types
 
@@ -573,6 +578,9 @@ commands without printing a thing - the handler reports, `output.py` renders.
 * Bytecode-level Python semantics (`//` on negative integers, integer overflow,
   float precision) follow C/C++ on the board.
 * `**` maps to `pow()` and truncates when the result is stored in an int.
+* Grouping parentheses written on one line are preserved; grouping split across
+  lines is re-derived from operator precedence, which keeps the same meaning but
+  may drop redundant parentheses.
 * Arrays come from list or tuple literals only; they cannot be resized, passed
   to functions or returned.
 * Objects created at the top level are constructed before `setup()` runs, so for

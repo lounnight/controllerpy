@@ -27,8 +27,6 @@ __all__ = ["StatementEmitter"]
 
 
 class StatementEmitter:
-    """Writes a statement, a function body or a class definition."""
-
     def __init__(
         self,
         context: CompileContext,
@@ -44,8 +42,6 @@ class StatementEmitter:
 
     # definitions
     def definitions(self, body: Sequence[ast.stmt]) -> None:
-        """Every top level function, with ``main()`` renamed to ``setup()``."""
-
         for stmt in body:
             if isinstance(stmt, ast.FunctionDef):
                 if stmt is self.ctx.setup_node:
@@ -65,8 +61,6 @@ class StatementEmitter:
                     self.w.blank()
 
     def entry_point(self, name: str, info: Optional[FunctionInfo], node: ast.FunctionDef) -> None:
-        """``void setup()`` / ``void loop()`` - both always return void."""
-
         if info is None:  # pragma: no cover - defensive
             raise ValueError(f"missing symbol table for {name}()")
         self.w.line(f"void {name}() {{")
@@ -78,8 +72,6 @@ class StatementEmitter:
         self.w.blank()
 
     def class_definition(self, cls: ClassInfo) -> None:
-        """A class: public fields, then the constructor and the methods."""
-
         self.w.line(f"class {self.decl.name(cls.name)} {{")
         self.w.line("public:")
         self.w.indent()
@@ -155,7 +147,7 @@ class StatementEmitter:
             self._emit_for(stmt)
         elif isinstance(stmt, ast.Return):
             self.w.line(
-                "return;" if stmt.value is None else f"return {self.exprs.expr(stmt.value)};"
+                "return;" if stmt.value is None else f"return {self.exprs.value(stmt.value)};"
             )
         elif isinstance(stmt, ast.Break):
             self.w.line("break;")
@@ -201,7 +193,7 @@ class StatementEmitter:
             inferred = self.exprs.type_of(value)
             cpp_type = "int" if inferred in (UNKNOWN_TYPE, "void") else inferred
             temporary = f"micropy_tmp{index}"
-            self.w.line(f"{cpp_type} {temporary} = {self.exprs.expr(value)};")
+            self.w.line(f"{cpp_type} {temporary} = {self.exprs.value(value)};")
             temporaries.append(temporary)
         for target, temporary in zip(target_elements, temporaries):
             self._emit_single_assign(target, ast.Name(id=temporary, ctx=ast.Load()), stmt)
@@ -218,7 +210,7 @@ class StatementEmitter:
 
     def _emit_augassign(self, node: ast.AugAssign) -> None:
         target = self.exprs.expr(node.target)
-        value = self.exprs.expr(node.value)
+        value = self.exprs.value(node.value)
         if isinstance(node.op, ast.FloorDiv):
             if self.exprs.type_of(node.target) == "float":
                 self.w.line(f"{target} = floor({target} / {value});")
@@ -240,15 +232,15 @@ class StatementEmitter:
                 if self.ctx.is_object_type(local.cpp_type) and isinstance(value, ast.Call):
                     self.w.line(f"{self.decl.object_declaration(local, value)};")
                 else:
-                    self.w.line(f"{self.decl.declaration(local)} = {self.exprs.expr(value)};")
+                    self.w.line(f"{self.decl.declaration(local)} = {self.exprs.value(value)};")
             else:
-                self.w.line(f"{self.decl.name(target.id)} = {self.exprs.expr(value)};")
+                self.w.line(f"{self.decl.name(target.id)} = {self.exprs.value(value)};")
             return
         if isinstance(target, ast.Attribute):
-            self.w.line(f"{self.exprs.expr(target)} = {self.exprs.expr(value)};")
+            self.w.line(f"{self.exprs.expr(target)} = {self.exprs.value(value)};")
             return
         if isinstance(target, ast.Subscript):
-            self.w.line(f"{self.exprs.expr(target)} = {self.exprs.expr(value)};")
+            self.w.line(f"{self.exprs.expr(target)} = {self.exprs.value(value)};")
             return
         self.ctx.error(target, "Internal error: unsupported assignment target")
 
@@ -290,12 +282,12 @@ class StatementEmitter:
             start_text, stop_node = "0", args[0]
             step_value = 1
         elif len(args) == 2:
-            start_text, stop_node = self.exprs.expr(args[0]), args[1]
+            start_text, stop_node = self.exprs.value(args[0]), args[1]
             step_value = 1
         else:
-            start_text, stop_node = self.exprs.expr(args[0]), args[1]
+            start_text, stop_node = self.exprs.value(args[0]), args[1]
             step_value = constant_int(args[2]) or 0
-        stop_text = self.exprs.expr(stop_node)
+        stop_text = self.exprs.value(stop_node)
         comparison = "<" if step_value >= 0 else ">"
         if step_value == 1:
             increment = f"{loop_var}++"
