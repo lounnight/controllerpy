@@ -54,7 +54,9 @@ BUILTINS_STUB = (
     "# Write your arduino code here\n"
     "# Please don't clear the imports, for ide config\n"
     "from builtins import *\n"
-    "from micropy_api import *\n"
+    "from micropy_api import *\n\n"
+    "def main():\n  pass\n\n"
+    "def loop():\n  pass\n"
 )
 
 
