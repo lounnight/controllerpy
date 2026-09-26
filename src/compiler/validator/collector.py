@@ -156,7 +156,7 @@ class Validator:
             )
 
     def _check_reserved_variable(self, node: ast.AST, name: str) -> None:
-        check_reserved_variable(self.ctx, node, name)
+        check_reserved_variable(self.ctx.error, node, name)
 
     def _collect_params(self, node: ast.FunctionDef, *, skip_self: bool) -> List[VarInfo]:
         args = node.args
@@ -203,7 +203,7 @@ class Validator:
         return params
 
     def _annotation(self, node: ast.AST) -> str:
-        return resolve_annotation(self.ctx, node)
+        return resolve_annotation(node, self.ctx.classes, self.ctx.external_types, self.ctx.error)
 
     def _collect_function(self, node: ast.FunctionDef) -> None:
         name = node.name

@@ -131,7 +131,15 @@ def test_list_ports_uses_board_list(fake_arduino_cli, recorded_calls):
     assert "Port" in result.stdout
 
 
-def test_verbose_prints_the_command(fake_arduino_cli, capsys, tmp_path):
+def test_run_never_prints_the_command(fake_arduino_cli, capsys):
+    """The toolchain layer executes; it does not decide how the CLI looks.
+
+    ``$ command`` is the CLI's to print (cli.output.report_tool_command), which
+    is why run() stays silent even in verbose mode.
+    """
+
     script = fake_arduino_cli()
-    run(["version"], executable=str(script), verbose=True)
-    assert "$ " in capsys.readouterr().out
+    result = run(["version"], executable=str(script), verbose=True)
+
+    assert capsys.readouterr().out == ""
+    assert result.args == [str(script), "version"]

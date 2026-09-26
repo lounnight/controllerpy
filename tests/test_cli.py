@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -11,11 +12,16 @@ from micropy import __version__
 from micropy.arduino import ENV_VAR, INSTALL_URL
 from micropy.cli import (
     EXIT_COMPILE_ERROR,
+    EXIT_INTERNAL,
     EXIT_OK,
     EXIT_TOOLCHAIN,
     EXIT_USAGE,
+    build_parser,
     main,
+    output,
 )
+from micropy.cli.commands import toolchain
+from micropy.errors import MicropyError
 
 PROGRAM = 'LED = 13\n\ndef main():\n    pin_mode(LED, OUTPUT)\n\ndef loop():\n    digital_write(LED, HIGH)\n    delay(1000)\n'
 
@@ -28,9 +34,104 @@ def source(tmp_path) -> Path:
 
 
 @pytest.fixture
+def cli_help(capsys):
+    """The --help text of one command."""
+
+    def show(command: str) -> str:
+        with pytest.raises(SystemExit):
+            main([command, "--help"])
+        return capsys.readouterr().out
+
+    return show
+
+
+@pytest.fixture
 def no_arduino_cli(monkeypatch):
     monkeypatch.delenv(ENV_VAR, raising=False)
     monkeypatch.setenv("PATH", "")
+
+
+@pytest.fixture
+def reported_tool_commands(monkeypatch):
+    """Every ``(command, verbose)`` pair the CLI handed cli/output.py to print.
+
+    The recorder replaces ``cli.output.report_tool_command`` and still prints
+    through it, so the captured stdout stays exactly what a user would see and
+    the "printed once" assertions keep their meaning.
+    """
+
+    seen = []
+    render = output.report_tool_command
+
+    def record(args, verbose):
+        seen.append((list(args), verbose))
+        render(args, verbose)
+
+    monkeypatch.setattr(toolchain, "report_tool_command", record)
+    return seen
+
+
+# ------------------------------------------------------------------ the stub
+def _annotation(node: ast.expr) -> str:
+    return ast.unparse(node)
+
+
+def _signature(node: ast.FunctionDef) -> str:
+    """``(pin: int, mode: int) -> None`` - the parameters and return type only.
+
+    The body is left out on purpose: a docstring is documentation, not part of
+    the signature the type-checker sees.
+    """
+
+    args = list(node.args.args)
+    defaults = list(node.args.defaults)
+    undecided = len(args) - len(defaults)
+    parts = []
+    for index, arg in enumerate(args):
+        text = arg.arg
+        if arg.annotation is not None:
+            text += f": {_annotation(arg.annotation)}"
+        if index >= undecided:
+            default = ast.unparse(defaults[index - undecided])
+            text += f" = {default}" if arg.annotation is not None else f"={default}"
+        parts.append(text)
+    returns = f" -> {_annotation(node.returns)}" if node.returns is not None else ""
+
+    return f"({', '.join(parts)}){returns}"
+
+
+class StubAPI:
+    """The API a ``.pyi`` publishes, read by parsing it rather than by matching.
+
+    ``micropy init`` and ``micropy stubs`` copy the bundled stub verbatim, so
+    the contract these tests care about is the one that file *declares* - which
+    names exist, what they take, what they return.  Parsing states that
+    directly and leaves the layout free: adding a docstring to a function, or
+    reflowing the file, does not invalidate any assertion, and a name that only
+    appears in a comment no longer counts as present.
+    """
+
+    def __init__(self, source: str) -> None:
+        tree = ast.parse(source)
+        self.functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+        self.classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+        self.constants = {
+            node.target.id: _annotation(node.annotation)
+            for node in tree.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        }
+
+    def signature(self, name: str) -> str:
+        """The signature of a module-level function."""
+        return _signature(self.functions[name])
+
+    def methods(self, class_name: str) -> dict[str, str]:
+        """``{name: signature}`` for the methods of one declared class."""
+        return {
+            node.name: _signature(node)
+            for node in self.classes[class_name].body
+            if isinstance(node, ast.FunctionDef)
+        }
 
 
 # --------------------------------------------------------------------- build
@@ -146,6 +247,61 @@ def test_compile_reports_a_failing_toolchain(source, tmp_path, fake_arduino_cli,
     assert "no such core" in capsys.readouterr().err
 
 
+def test_compile_verbose_echoes_the_command_through_output(
+    source, tmp_path, fake_arduino_cli, recorded_calls, reported_tool_commands, capsys
+):
+    script = fake_arduino_cli()
+    build = tmp_path / "build"
+
+    code = main(["compile", str(source), "-o", str(build), "-v", "--arduino-cli", str(script)])
+
+    assert code == EXIT_OK
+    # cli/output.py rendered it, once, for the one toolchain call that ran.
+    assert len(reported_tool_commands) == 1
+    ((command, verbose),) = reported_tool_commands
+    assert verbose is True
+    # It is the command arduino-cli actually received, not a second rendering.
+    assert command[0] == str(script)
+    assert command[1] == "compile"
+    assert recorded_calls() == [" ".join(command[1:])]
+    # And it reached stdout exactly once, ahead of the tool's own output.
+    out = capsys.readouterr().out
+    assert out.count("$ ") == 1
+    assert out.splitlines()[0] == "$ " + " ".join(command)
+
+
+def test_compile_verbose_echo_does_not_come_from_the_toolchain(
+    source, tmp_path, fake_arduino_cli, monkeypatch, capsys
+):
+    """Silence the formatter: a surviving ``$`` would mean a handler printed it.
+
+    This is the other half of the test above - the echo is routed through
+    cli/output.py, not printed by micropy.arduino or the handler.
+    """
+
+    script = fake_arduino_cli()
+    monkeypatch.setattr(toolchain, "report_tool_command", lambda args, verbose: None)
+
+    assert main(["compile", str(source), "-o", str(tmp_path / "build"), "-v", "--arduino-cli", str(script)]) == EXIT_OK
+
+    captured = capsys.readouterr()
+    assert "$ " not in captured.out
+    assert "$ " not in captured.err
+
+
+def test_compile_without_verbose_prints_no_command(
+    source, tmp_path, fake_arduino_cli, reported_tool_commands, capsys
+):
+    """Without ``-v`` the handler still routes, and output.py stays quiet."""
+
+    script = fake_arduino_cli()
+
+    assert main(["compile", str(source), "-o", str(tmp_path / "build"), "--arduino-cli", str(script)]) == EXIT_OK
+
+    assert [verbose for _, verbose in reported_tool_commands] == [False]
+    assert "$ " not in capsys.readouterr().out
+
+
 def test_unknown_board_is_reported(source, capsys):
     assert main(["compile", str(source), "--board", "teensy"]) == EXIT_COMPILE_ERROR
     err = capsys.readouterr().err
@@ -201,6 +357,38 @@ def test_upload_compiles_and_then_uploads(source, tmp_path, fake_arduino_cli, re
     assert str(port) in out
 
 
+def test_upload_verbose_echoes_both_commands_once_each(
+    source, tmp_path, fake_arduino_cli, recorded_calls, reported_tool_commands, capsys
+):
+    script = fake_arduino_cli()
+    port = tmp_path / "ttyUSB0"
+    port.write_text("", encoding="utf-8")
+
+    code = main(
+        [
+            "upload",
+            str(source),
+            "-o",
+            str(tmp_path / "build"),
+            "-v",
+            "--port",
+            str(port),
+            "--arduino-cli",
+            str(script),
+        ]
+    )
+
+    assert code == EXIT_OK
+    # compile, then upload: one echo each, in the order they ran.
+    assert [command[1] for command, _ in reported_tool_commands] == ["compile", "upload"]
+    assert recorded_calls() == [" ".join(command[1:]) for command, _ in reported_tool_commands]
+    out = capsys.readouterr().out
+    assert out.count("$ ") == 2
+    assert [line for line in out.splitlines() if line.startswith("$ ")] == [
+        "$ " + " ".join(command) for command, _ in reported_tool_commands
+    ]
+
+
 # ---------------------------------------------------------------- other cmds
 def test_boards_lists_supported_and_planned(capsys):
     assert main(["boards"]) == EXIT_OK
@@ -217,13 +405,152 @@ def test_ports_uses_arduino_cli(fake_arduino_cli, recorded_calls, capsys):
     assert "Port Protocol Type" in capsys.readouterr().out
 
 
+def test_ports_verbose_echoes_the_command_once(fake_arduino_cli, recorded_calls, reported_tool_commands, capsys):
+    script = fake_arduino_cli(stdout="Port Protocol Type")
+
+    assert main(["ports", "-v", "--arduino-cli", str(script)]) == EXIT_OK
+
+    ((command, verbose),) = reported_tool_commands
+    assert verbose is True
+    assert command == [str(script), "board", "list"]
+    assert recorded_calls() == [" ".join(command[1:])]
+    out = capsys.readouterr().out
+    assert out.count("$ ") == 1
+    assert out.splitlines()[:2] == ["$ " + " ".join(command), "Port Protocol Type"]
+
+
 def test_stubs_writes_the_ide_stub(tmp_path, capsys):
     target = tmp_path / "micropy_api.pyi"
     assert main(["stubs", "-o", str(target)]) == EXIT_OK
-    content = target.read_text(encoding="utf-8")
-    assert "def pin_mode(pin: int, mode: int) -> None: ..." in content
-    assert "OUTPUT: int" in content
+
+    api = StubAPI(target.read_text(encoding="utf-8"))
+    # What the copied file declares, not how the declarations are laid out.
+    assert api.signature("pin_mode") == "(pin: int, mode: int) -> None"
+    assert api.signature("digital_read") == "(pin: int) -> int"
+    assert api.constants["OUTPUT"] == "int"
+    assert api.constants["A0"] == "int"
+    # Arduino's own classes come across with their methods intact.
+    assert api.methods("String")["__init__"] == "(self, value: Any = ...) -> None"
+    assert api.methods("String")["length"] == "(self) -> int"
+    assert api.methods("String")["charAt"] == "(self, index: int) -> str"
+    assert api.methods("Servo")["attach"] == "(self, pin: int) -> None"
+    assert api.methods("Servo")["detach"] == "(self) -> None"
+    assert api.methods("Servo")["write"] == "(self, angle: int) -> None"
+    assert api.methods("Servo")["read"] == "(self) -> int"
     assert "micropy_api import" in capsys.readouterr().out
+
+
+# `stubs` writes one file; every other -o takes a directory.  All three
+# spellings mean the same file path, and none of them reinterprets it.
+STUB_OUTPUT_FORMS = ["-o", "--output", "--output-file"]
+
+
+@pytest.mark.parametrize("option", STUB_OUTPUT_FORMS)
+def test_stubs_output_forms_all_write_that_exact_file(option, tmp_path):
+    target = tmp_path / "api.pyi"
+    assert main(["stubs", option, str(target)]) == EXIT_OK
+
+    assert target.is_file()
+    assert not (tmp_path / "micropy_api.pyi").exists()
+    assert "def pin_mode" in target.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("option", STUB_OUTPUT_FORMS)
+def test_stubs_output_creates_missing_parent_directories(option, tmp_path):
+    target = tmp_path / "deep" / "nested" / "api.pyi"
+    assert main(["stubs", option, str(target)]) == EXIT_OK
+
+    assert target.is_file()
+
+
+def test_stubs_output_defaults_to_the_api_stub_name(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["stubs"]) == EXIT_OK
+
+    assert (tmp_path / "micropy_api.pyi").is_file()
+
+
+def test_stubs_overwrites_an_existing_file(tmp_path):
+    """An existing *file* is a valid target and is replaced, not refused."""
+
+    target = tmp_path / "api.pyi"
+    target.write_text("# stale\n", encoding="utf-8")
+
+    assert main(["stubs", "-o", str(target)]) == EXIT_OK
+
+    assert "def pin_mode" in target.read_text(encoding="utf-8")
+
+
+# ``-o`` names a file.  A directory is a usage error the CLI reports, not an
+# IsADirectoryError that escapes as an internal error.
+@pytest.mark.parametrize("option", STUB_OUTPUT_FORMS)
+def test_stubs_rejects_an_existing_directory(option, tmp_path, capsys):
+    target = tmp_path / "out"
+    target.mkdir()
+    keep = target / "keep.txt"
+    keep.write_text("mine\n", encoding="utf-8")
+
+    code = main(["stubs", option, str(target)])
+
+    assert code == EXIT_USAGE == 2
+    assert code != EXIT_INTERNAL
+    captured = capsys.readouterr()
+    assert f"{target} is a directory, not a stub file." in captured.err
+    assert "micropy stubs -o micropy_api.pyi" in captured.err
+    assert "internal error" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+    assert keep.read_text(encoding="utf-8") == "mine\n"
+
+
+def test_stubs_rejects_a_directory_at_the_default_path(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    Path("micropy_api.pyi").mkdir()
+
+    assert main(["stubs"]) == EXIT_USAGE
+
+    assert "is a directory, not a stub file." in capsys.readouterr().err
+
+
+def test_stubs_directory_error_stays_a_usage_error_with_debug(tmp_path, capsys):
+    """--debug re-raises bugs; a usage error is not a bug, so it still returns 2."""
+
+    target = tmp_path / "out"
+    target.mkdir()
+
+    assert main(["stubs", "--debug", "-o", str(target)]) == EXIT_USAGE
+
+    captured = capsys.readouterr()
+    assert "is a directory, not a stub file." in captured.err
+    assert "internal error" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_stubs_output_is_a_file_not_a_directory(cli_help):
+    """The option is documented as a file, and the help says so explicitly."""
+
+    help_text = cli_help("stubs")
+    assert "--output-file" in help_text
+    assert "stub file to write" in help_text
+    assert "--output-dir" not in help_text
+
+
+def test_every_other_command_keeps_output_dir(tmp_path, source, cli_help):
+    """-o stays an output directory everywhere else: the paths are unchanged."""
+
+    build = tmp_path / "out"
+    assert main(["build", str(source), "-o", str(build)]) == EXIT_OK
+    assert (build / "main.ino").is_file()
+    assert (build / "main.ino").read_text(encoding="utf-8").startswith("const int LED = 13;\n")
+
+    assert main(["clean", "-o", str(build)]) == EXIT_OK
+    assert not build.exists()
+
+    for command in ("build", "check", "compile", "upload", "clean"):
+        help_text = cli_help(command)
+        assert "--output-dir" in help_text
+        assert "--output-file" not in help_text
 
 
 # --------------------------------------------------------------------- init
@@ -269,8 +596,12 @@ def test_init_force_regenerates_the_ide_files(tmp_path, monkeypatch):
         (tmp_path / name).write_text("stale", encoding="utf-8")
     assert main(["init", "--force"]) == EXIT_OK
     stub = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
-    assert "def pin_mode(pin: int, mode: int) -> None: ..." in stub
     assert "stale" not in stub
+    # The whole file was replaced by the real API, so it parses and declares it.
+    api = StubAPI(stub)
+    assert api.signature("pin_mode") == "(pin: int, mode: int) -> None"
+    assert api.constants["OUTPUT"] == "int"
+    assert {"String", "Servo"} <= set(api.classes)
     assert "extraPaths" in (tmp_path / "pyrightconfig.json").read_text(encoding="utf-8")
     assert "from micropy_api import *" in (tmp_path / "main.py").read_text(encoding="utf-8")
 
@@ -278,7 +609,7 @@ def test_init_force_regenerates_the_ide_files(tmp_path, monkeypatch):
 def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == EXIT_OK
-    stub = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
+    api = StubAPI((tmp_path / "micropy_api.pyi").read_text(encoding="utf-8"))
     functions = [
         "pin_mode",
         "digital_write",
@@ -314,9 +645,9 @@ def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
         "LED_BUILTIN",
     ]
     for name in functions:
-        assert f"def {name}(" in stub, f"{name}() missing from the stub"
+        assert name in api.functions, f"{name}() missing from the stub"
     for name in constants:
-        assert f"{name}: int" in stub, f"{name} missing from the stub"
+        assert api.constants.get(name) == "int", f"{name} missing from the stub"
 
 
 def test_init_and_stubs_copy_the_same_source_stub(tmp_path, monkeypatch):
@@ -380,3 +711,115 @@ def test_a_command_is_required(capsys):
     with pytest.raises(SystemExit) as caught:
         main([])
     assert caught.value.code == EXIT_USAGE
+
+
+# --------------------------------------------------------------------- --debug
+#: ``--debug`` is a global flag, so it has to work before the command, right
+#: after it, and after the command's own arguments - for every command.
+DEBUG_POSITIONS = [
+    ["--debug", "build", "main.py"],
+    ["build", "--debug", "main.py"],
+    ["build", "main.py", "--debug"],
+    ["--debug", "check", "main.py"],
+    ["check", "main.py", "--debug"],
+    ["clean", "--debug"],
+    ["--debug", "init"],
+    ["init", "--debug", "--force"],
+    ["boards", "--debug"],
+    ["--debug", "ports"],
+    ["stubs", "--debug", "-o", "api.pyi"],
+    ["compile", "main.py", "--debug"],
+    ["upload", "main.py", "--debug", "-p", "/dev/ttyACM0"],
+]
+
+DEBUG_POSITIONS_IN_BUILD = DEBUG_POSITIONS[:3]
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS)
+def test_debug_is_recognized_in_any_position(argv):
+    """Before the command, after it, or after the arguments - all accepted."""
+
+    assert build_parser().parse_args(argv).debug is True
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS)
+def test_debug_stays_off_when_it_is_not_given(argv):
+    """Every command still defaults to no debugging."""
+
+    without = [item for item in argv if item != "--debug"]
+    assert build_parser().parse_args(without).debug is False
+
+
+@pytest.mark.parametrize("command", ["init", "build", "check", "clean", "compile", "upload", "ports", "boards", "stubs"])
+def test_every_command_documents_debug(command, capsys):
+    """A flag the user may write after the command has to be discoverable."""
+
+    with pytest.raises(SystemExit):
+        main([command, "--help"])
+    assert "--debug" in capsys.readouterr().out
+
+
+@pytest.fixture
+def broken_compile(monkeypatch):
+    """Make the compiler fail with something that is not a MicropyError."""
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("micropy.cli.commands.sketch.compile_file", explode)
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS_IN_BUILD)
+def test_debug_re_raises_the_traceback_in_any_position(argv, source, tmp_path, broken_compile):
+    """--debug is not merely accepted: the real exception reaches the user."""
+
+    resolved = [str(source) if item == "main.py" else item for item in argv]
+    resolved += ["-o", str(tmp_path / "build")]
+
+    with pytest.raises(RuntimeError, match="boom"):
+        main(resolved)
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS_IN_BUILD)
+def test_without_debug_the_same_failure_stays_quiet(argv, source, tmp_path, monkeypatch, broken_compile, capsys):
+    resolved = [str(source) if item == "main.py" else item for item in argv]
+    resolved = [item for item in resolved if item != "--debug"]
+    resolved += ["-o", str(tmp_path / "build")]
+
+    assert main(resolved) == EXIT_INTERNAL
+    err = capsys.readouterr().err
+    assert "micropy: internal error: RuntimeError: boom" in err
+    assert "Traceback" not in err
+
+
+def test_debug_re_raises_a_source_error_too(tmp_path, capsys):
+    """The MicropyError branch honours --debug as well."""
+
+    broken = tmp_path / "broken.py"
+    broken.write_text("def main():\n    pass\n", encoding="utf-8")
+
+    for argv in (
+        ["--debug", "build", str(broken)],
+        ["build", "--debug", str(broken)],
+        ["build", str(broken), "--debug"],
+    ):
+        with pytest.raises(MicropyError, match="Missing required function"):
+            main(argv + ["-o", str(tmp_path / "build")])
+
+    assert main(["build", str(broken), "-o", str(tmp_path / "build")]) == EXIT_COMPILE_ERROR
+    err = capsys.readouterr().err
+    assert "Missing required function: loop()" in err
+    assert "Traceback" not in err
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS_IN_BUILD)
+def test_debug_does_not_change_a_successful_run(argv, source, tmp_path, capsys):
+    """A successful build prints exactly the same with the flag on or off."""
+
+    resolved = [str(source) if item == "main.py" else item for item in argv]
+    if "--debug" not in resolved:
+        resolved += ["--debug"]
+    resolved += ["-o", str(tmp_path / "build")]
+
+    assert main(resolved) == EXIT_OK
+    assert (tmp_path / "build" / "main.ino").read_text(encoding="utf-8").startswith("const int LED = 13;\n")

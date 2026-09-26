@@ -97,7 +97,22 @@ micropy stubs                                  # micropy_api.pyi only (legacy; p
 | `stubs` | writes `micropy_api.pyi` only (legacy; prefer `init`) | no |
 
 Common options: `-o/--output-dir`, `-b/--board` (FQBN or alias such as `uno`),
-`-v/--verbose`, `--arduino-cli PATH`, `--port`, `--debug`, `--version`.
+`-v/--verbose`, `--arduino-cli PATH`, `--port`, `--debug`, `--version`. `--debug`
+is a global option and may be written before or after the command, so
+`micropy --debug build main.py`, `micropy build --debug main.py` and
+`micropy build main.py --debug` are the same thing.
+
+`-o` takes a **directory** for every command except `stubs`, which writes a
+single **file** and therefore spells its option `--output-file`:
+
+```bash
+micropy build main.py -o out      # out/main.ino
+micropy stubs --output-file api/micropy_api.pyi   # api/micropy_api.pyi
+micropy stubs -o api.pyi          # the same, and still the same
+```
+
+`stubs` keeps `-o` and `--output` as aliases of `--output-file`; the path is
+always the file to write, never a directory.
 
 Exit codes: `0` success, `1` source/compiler error, `2` usage error (for
 example a missing `--port`), `3` arduino-cli missing or failed, `70` internal
@@ -397,7 +412,16 @@ micropy/
 ├── compiler.py                 deprecated single-file prototype (kept)
 ├── examples/                   blink, button, loops, oop, serial
 ├── src/                        the micropy package
-│   ├── cli.py                  argparse CLI
+│   ├── cli/                    the argparse front end
+│   │   ├── main.py               entry point: parse, dispatch, errors -> exit code
+│   │   ├── parser.py             every command, argument and option
+│   │   ├── commands/             one module per kind of command
+│   │   │   ├── sketch.py            build, check, clean
+│   │   │   ├── toolchain.py         compile, upload, ports
+│   │   │   └── project.py           init, stubs, boards
+│   │   ├── output.py             what the CLI prints
+│   │   ├── exit_codes.py         the exit-code contract
+│   │   └── utils.py              sketch naming, build/ layout
 │   ├── boards.py               board (FQBN) registry
 │   ├── arduino.py              arduino-cli integration
 │   ├── errors.py               MicropyError / ArduinoCliError
@@ -435,7 +459,10 @@ detail. Its modules build on each other in one direction -
 `api`/`types`/`naming`/`libraries` describe the target, `symbols` records what
 was found, `context` holds the result for stage 3, and `validator` + `analyzer`
 are the two phases that fill it in - which is why none of them import each
-other cyclically. `micropy.compiler` re-exports `CompileContext` and `Validator`
+other cyclically. The first group never imports `context` at all: it reports
+problems through the `ErrorReporter` it is handed (`CompileContext.error`), and
+`types` is passed the class names it has to resolve rather than the context to
+read them from. `micropy.compiler` re-exports `CompileContext` and `Validator`
 if you want to drive the stage yourself.
 
 Stage 3 is just as one-directional: `formatting` and `operators` hold the C++
@@ -443,6 +470,13 @@ vocabulary, `ordering` works out which classes come first, then `expressions`
 prints expressions, `declarations` prints what they are stored in, `statements`
 prints the bodies that hold both, and `generator.py` runs the emission passes
 in the only order that produces valid C++.
+
+The CLI is a thin front end over the three stages: `parser.py` defines what
+each command accepts, `commands/` decide *which* job to do (`compile_file` for
+a source, `micropy.arduino` for the toolchain), `output.py` renders the result
+and `main.py` turns it into an exit code. It never reaches into a stage's
+internals, and `commands/` never imports `main` or `parser`, so a command can
+be added in one module plus one line in `parser.py`.
 
 ## Extending
 
@@ -455,6 +489,8 @@ in the only order that produces valid C++.
 * **New API function**: add an `ApiFunction` to `API_FUNCTIONS` in
   `compiler/validator/api.py` (Python name, C++ name, arity, return type) -
   validation, hints and code generation all read that table.
+* **New CLI command**: add a handler to the matching `cli/commands/` module and
+  register it in `cli/parser.py`.
 
 ## Known limitations
 

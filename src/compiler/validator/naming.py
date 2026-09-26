@@ -8,12 +8,10 @@ agree on every name they emit.
 from __future__ import annotations
 
 import ast
-from typing import TYPE_CHECKING, FrozenSet
+from typing import FrozenSet
 
+from ...errors import ErrorReporter
 from .api import API_FUNCTIONS, ARDUINO_CONSTANTS, ARDUINO_OBJECTS, BUILTIN_FUNCTIONS
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from .context import CompileContext
 
 __all__ = [
     "CPP_KEYWORDS",
@@ -57,11 +55,16 @@ def is_reserved(name: str) -> bool:
     return name in RESERVED_CPP_NAMES
 
 
-def check_reserved_variable(context: "CompileContext", node: ast.AST, name: str) -> None:
-    """Names owned by the Arduino core cannot become variables."""
+def check_reserved_variable(report: ErrorReporter, node: ast.AST, name: str) -> None:
+    """Names owned by the Arduino core cannot become variables.
+
+    The only thing this rule needs is something that can raise against a node,
+    so the caller hands in its reporter (``CompileContext.error``) instead of
+    the whole context - see :class:`~micropy.errors.ErrorReporter`.
+    """
 
     if name in ARDUINO_OBJECTS or name in ARDUINO_CONSTANTS:
-        context.error(
+        report(
             node,
             f"'{name}' is used by the Arduino core and cannot be a variable name.",
             hint="Please pick another name.",
