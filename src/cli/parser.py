@@ -24,6 +24,7 @@ from .commands import (
     cmd_stubs,
     cmd_upload,
 )
+from .commands.project import STUB_NAME
 
 __all__ = ["DEFAULT_OUTPUT_DIR", "DEBUG_HELP", "PROG", "build_parser"]
 
@@ -143,7 +144,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="write the IDE stub (api.pyi) into your project (legacy; prefer 'init')",
     )
 
-    stubs.add_argument("-o", "--output", default="micropy_api.pyi", help="where to write the stub")
+    # ``stubs`` is the one command that writes a single file rather than a
+    # directory, so its option is spelled --output-file.  ``-o`` and --output
+    # are kept as the aliases it has always had: renaming them would reinterpret
+    # every path users already pass, and --output already says "a file".
+    stubs.add_argument(
+        "-o",
+        "--output-file",
+        "--output",
+        dest="output",
+        default=STUB_NAME,
+        help=f"stub file to write (default: {STUB_NAME})",
+    )
     stubs.set_defaults(handler=cmd_stubs)
 
     return parser

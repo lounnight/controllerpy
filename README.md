@@ -102,6 +102,18 @@ is a global option and may be written before or after the command, so
 `micropy --debug build main.py`, `micropy build --debug main.py` and
 `micropy build main.py --debug` are the same thing.
 
+`-o` takes a **directory** for every command except `stubs`, which writes a
+single **file** and therefore spells its option `--output-file`:
+
+```bash
+micropy build main.py -o out      # out/main.ino
+micropy stubs --output-file api/micropy_api.pyi   # api/micropy_api.pyi
+micropy stubs -o api.pyi          # the same, and still the same
+```
+
+`stubs` keeps `-o` and `--output` as aliases of `--output-file`; the path is
+always the file to write, never a directory.
+
 Exit codes: `0` success, `1` source/compiler error, `2` usage error (for
 example a missing `--port`), `3` arduino-cli missing or failed, `70` internal
 error.

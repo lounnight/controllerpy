@@ -31,6 +31,18 @@ def source(tmp_path) -> Path:
 
 
 @pytest.fixture
+def cli_help(capsys):
+    """The --help text of one command."""
+
+    def show(command: str) -> str:
+        with pytest.raises(SystemExit):
+            main([command, "--help"])
+        return capsys.readouterr().out
+
+    return show
+
+
+@pytest.fixture
 def no_arduino_cli(monkeypatch):
     monkeypatch.delenv(ENV_VAR, raising=False)
     monkeypatch.setenv("PATH", "")
@@ -227,6 +239,63 @@ def test_stubs_writes_the_ide_stub(tmp_path, capsys):
     assert "def pin_mode(pin: int, mode: int) -> None: ..." in content
     assert "OUTPUT: int" in content
     assert "micropy_api import" in capsys.readouterr().out
+
+
+# `stubs` writes one file; every other -o takes a directory.  All three
+# spellings mean the same file path, and none of them reinterprets it.
+STUB_OUTPUT_FORMS = ["-o", "--output", "--output-file"]
+
+
+@pytest.mark.parametrize("option", STUB_OUTPUT_FORMS)
+def test_stubs_output_forms_all_write_that_exact_file(option, tmp_path):
+    target = tmp_path / "api.pyi"
+    assert main(["stubs", option, str(target)]) == EXIT_OK
+
+    assert target.is_file()
+    assert not (tmp_path / "micropy_api.pyi").exists()
+    assert "def pin_mode" in target.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("option", STUB_OUTPUT_FORMS)
+def test_stubs_output_creates_missing_parent_directories(option, tmp_path):
+    target = tmp_path / "deep" / "nested" / "api.pyi"
+    assert main(["stubs", option, str(target)]) == EXIT_OK
+
+    assert target.is_file()
+
+
+def test_stubs_output_defaults_to_the_api_stub_name(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["stubs"]) == EXIT_OK
+
+    assert (tmp_path / "micropy_api.pyi").is_file()
+
+
+def test_stubs_output_is_a_file_not_a_directory(cli_help):
+    """The option is documented as a file, and the help says so explicitly."""
+
+    help_text = cli_help("stubs")
+    assert "--output-file" in help_text
+    assert "stub file to write" in help_text
+    assert "--output-dir" not in help_text
+
+
+def test_every_other_command_keeps_output_dir(tmp_path, source, cli_help):
+    """-o stays an output directory everywhere else: the paths are unchanged."""
+
+    build = tmp_path / "out"
+    assert main(["build", str(source), "-o", str(build)]) == EXIT_OK
+    assert (build / "main.ino").is_file()
+    assert (build / "main.ino").read_text(encoding="utf-8").startswith("const int LED = 13;\n")
+
+    assert main(["clean", "-o", str(build)]) == EXIT_OK
+    assert not build.exists()
+
+    for command in ("build", "check", "compile", "upload", "clean"):
+        help_text = cli_help(command)
+        assert "--output-dir" in help_text
+        assert "--output-file" not in help_text
 
 
 # --------------------------------------------------------------------- init
