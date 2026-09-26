@@ -13,8 +13,7 @@ resolve: #(ISSUE_ID)
 
 ## Notes
 
-<!-- Anything reviewers should know, such as breaking changes, edge cases, or
-follow-up work. -->
+<!-- Anything reviewers should know -->
 
 ---
 
