@@ -840,9 +840,9 @@ def test_pulse_in_maps_to_the_arduino_function(program):
     )
     assert "pinMode(7, INPUT);" in cpp
     assert "pulseIn(7, HIGH);" in cpp
-    assert "long duration = pulseIn(7, HIGH);" in cpp
-    assert "long released = pulseIn(8, LOW);" in cpp
-    assert "long bounded = pulseIn(9, HIGH, 500000);" in cpp
+    assert "int duration = pulseIn(7, HIGH);" in cpp
+    assert "int released = pulseIn(8, LOW);" in cpp
+    assert "int bounded = pulseIn(9, HIGH, 500000);" in cpp
 
 
 def test_pulse_in_result_is_used_like_any_other_value(program):
@@ -856,5 +856,50 @@ def test_pulse_in_result_is_used_like_any_other_value(program):
             serial_println(duration)
         """
     )
-    assert "long duration = pulseIn(7, HIGH);" in cpp
+    assert "int duration = pulseIn(7, HIGH);" in cpp
     assert "Serial.println(duration);" in cpp
+
+
+def test_pulse_in_result_promotes_a_float_global_to_float(program):
+    """Regression: pulseIn() returns an int, so a float variable stays valid."""
+    cpp = program(
+        """
+        buzzer = 8
+        trig_pin = 9
+        echo_pin = 10
+        timing = 0.0
+        distance = 0.0
+
+        def main():
+            pin_mode(echo_pin, INPUT)
+            pin_mode(trig_pin, OUTPUT)
+            pin_mode(buzzer, OUTPUT)
+
+        def loop():
+            timing = pulseIn(echo_pin, HIGH)
+            distance = (timing * 0.34) / 2
+        """
+    )
+    assert "float timing = 0.0;" in cpp
+    assert "float distance = 0.0;" in cpp
+    assert "timing = pulseIn(echo_pin, HIGH);" in cpp
+    assert "distance = timing * 0.34 / 2;" in cpp
+
+
+def test_pulse_in_result_updates_an_int_global_from_a_function(program):
+    """Assigning inside loop() updates the module level variable - never a shadow."""
+    cpp = program(
+        """
+        echo_pin = 10
+        timing = 0
+
+        def main():
+            pin_mode(echo_pin, INPUT)
+
+        def loop():
+            timing = pulseIn(echo_pin, HIGH)
+        """
+    )
+    assert "int timing = 0;" in cpp
+    assert "timing = pulseIn(echo_pin, HIGH);" in cpp
+    assert cpp.count("int timing") == 1

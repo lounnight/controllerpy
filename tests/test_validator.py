@@ -10,6 +10,7 @@ from typing import get_type_hints
 import pytest
 
 import micropy.compiler.validator as validator
+from micropy.compiler.validator.types import SCALAR_TYPES
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
 
@@ -626,6 +627,40 @@ def test_incompatible_variable_types_are_rejected(error):
 def test_int_and_float_are_promoted_not_rejected(result):
     compiled = result("def main():\n    value = 1\n    value = 1.5\n\ndef loop():\n    pass\n")
     assert "float value = 1;" in compiled.cpp
+
+
+def test_arduino_api_return_types_are_known_to_the_type_system():
+    """Every registered return type must be one the inference lattice can merge.
+
+    A type such as ``long`` is understood by C++ but not by micropy's type
+    system, so the result could never be assigned to an existing int or float
+    variable.
+    """
+    known = set(SCALAR_TYPES) | {validator.VOID_TYPE}
+    for name, function in validator.API_FUNCTIONS.items():
+        assert function.returns in known, f"{name}() is typed {function.returns}"
+
+
+def test_pulse_in_returns_int():
+    assert validator.API_FUNCTIONS["pulseIn"].returns == "int"
+
+
+def test_pulse_in_result_is_an_int(result):
+    compiled = result("def main():\n    duration = pulseIn(7, HIGH)\n\ndef loop():\n    pass\n")
+    assert "int duration = pulseIn(7, HIGH);" in compiled.cpp
+
+
+def test_pulse_in_result_promotes_a_float_variable_to_float(result):
+    """Regression: pulseIn() is an int-valued call, so float stays float."""
+    compiled = result("timing = 0.0\n\ndef main():\n    pass\n\ndef loop():\n    timing = pulseIn(7, HIGH)\n")
+    assert "float timing = 0.0;" in compiled.cpp
+
+
+def test_pulse_in_result_still_rejects_a_genuinely_incompatible_scope_assignment(error):
+    error(
+        "timing = 0.0\n\ndef main():\n    pass\n\ndef loop():\n    timing = 'text'\n",
+        message="'timing' is assigned values of incompatible types.",
+    )
 
 
 def test_string_arithmetic_is_rejected(error):

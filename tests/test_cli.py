@@ -22,7 +22,9 @@ from micropy.cli import (
     output,
 )
 from micropy.cli.commands import toolchain
+from micropy.compiler.validator import API_FUNCTIONS
 from micropy.errors import MicropyError
+from micropy.runtime import API_STUB
 
 PROGRAM = 'LED = 13\n\ndef main():\n    pin_mode(LED, OUTPUT)\n\ndef loop():\n    digital_write(LED, HIGH)\n    delay(1000)\n'
 
@@ -668,6 +670,18 @@ def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
     for name in constants:
         assert api.constants.get(name) == "int", f"{name} missing from the stub"
     assert api.signature("pulseIn") == "(pin: int, state: int, timeout: int = 1000000) -> int"
+
+
+def test_stub_return_annotations_match_the_api_table():
+    """The IDE stub and the compiler table must agree on every return type."""
+    api = StubAPI(API_STUB.read_text(encoding="utf-8"))
+    expected = {"None": "void", "int": "int", "float": "float"}
+    for name, function in API_FUNCTIONS.items():
+        assert name in api.functions, f"{name}() missing from the stub"
+        annotated = ast.unparse(api.functions[name].returns)
+        assert expected[annotated] == function.returns, (
+            f"{name}() -> {annotated} in the stub, {function.returns} in api.py"
+        )
 
 
 def test_init_and_stubs_copy_the_same_source_stub(tmp_path, monkeypatch):
