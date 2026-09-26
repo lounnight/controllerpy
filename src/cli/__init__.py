@@ -19,6 +19,7 @@ Where to change what:
 * a new command, or a new flag on one -> :mod:`.parser`
 * what a command does -> :mod:`.commands`
 * what the CLI prints -> :mod:`.output`
+* whether colour is allowed at all -> :mod:`.style`
 * which failure is which exit code -> :mod:`.main`
 * the numbers behind those exit codes -> :mod:`.exit_codes`
 * the sketch naming and ``build/`` layout -> :mod:`.utils`
