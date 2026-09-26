@@ -25,6 +25,7 @@ __all__ = [
     "report_generated",
     "report_internal_error",
     "report_interrupted",
+    "report_tool_command",
     "report_tool_output",
     "report_uploaded",
     "report_written_files",
@@ -60,6 +61,11 @@ def report_tool_output(text: str, verbose: bool) -> None:
 
     if verbose and text.strip():
         print(text.strip())
+
+
+def report_tool_command(args: Sequence[str], verbose: bool) -> None:
+    if verbose:
+        print("$ " + " ".join(args))
 
 
 def report_written_files(paths: Iterable[Path]) -> None:

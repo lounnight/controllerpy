@@ -17,7 +17,9 @@ from micropy.cli import (
     EXIT_USAGE,
     build_parser,
     main,
+    output,
 )
+from micropy.cli.commands import toolchain
 from micropy.errors import MicropyError
 
 PROGRAM = 'LED = 13\n\ndef main():\n    pin_mode(LED, OUTPUT)\n\ndef loop():\n    digital_write(LED, HIGH)\n    delay(1000)\n'
@@ -46,6 +48,26 @@ def cli_help(capsys):
 def no_arduino_cli(monkeypatch):
     monkeypatch.delenv(ENV_VAR, raising=False)
     monkeypatch.setenv("PATH", "")
+
+
+@pytest.fixture
+def reported_tool_commands(monkeypatch):
+    """Every ``(command, verbose)`` pair the CLI handed cli/output.py to print.
+
+    The recorder replaces ``cli.output.report_tool_command`` and still prints
+    through it, so the captured stdout stays exactly what a user would see and
+    the "printed once" assertions keep their meaning.
+    """
+
+    seen = []
+    render = output.report_tool_command
+
+    def record(args, verbose):
+        seen.append((list(args), verbose))
+        render(args, verbose)
+
+    monkeypatch.setattr(toolchain, "report_tool_command", record)
+    return seen
 
 
 # --------------------------------------------------------------------- build
@@ -161,6 +183,61 @@ def test_compile_reports_a_failing_toolchain(source, tmp_path, fake_arduino_cli,
     assert "no such core" in capsys.readouterr().err
 
 
+def test_compile_verbose_echoes_the_command_through_output(
+    source, tmp_path, fake_arduino_cli, recorded_calls, reported_tool_commands, capsys
+):
+    script = fake_arduino_cli()
+    build = tmp_path / "build"
+
+    code = main(["compile", str(source), "-o", str(build), "-v", "--arduino-cli", str(script)])
+
+    assert code == EXIT_OK
+    # cli/output.py rendered it, once, for the one toolchain call that ran.
+    assert len(reported_tool_commands) == 1
+    ((command, verbose),) = reported_tool_commands
+    assert verbose is True
+    # It is the command arduino-cli actually received, not a second rendering.
+    assert command[0] == str(script)
+    assert command[1] == "compile"
+    assert recorded_calls() == [" ".join(command[1:])]
+    # And it reached stdout exactly once, ahead of the tool's own output.
+    out = capsys.readouterr().out
+    assert out.count("$ ") == 1
+    assert out.splitlines()[0] == "$ " + " ".join(command)
+
+
+def test_compile_verbose_echo_does_not_come_from_the_toolchain(
+    source, tmp_path, fake_arduino_cli, monkeypatch, capsys
+):
+    """Silence the formatter: a surviving ``$`` would mean a handler printed it.
+
+    This is the other half of the test above - the echo is routed through
+    cli/output.py, not printed by micropy.arduino or the handler.
+    """
+
+    script = fake_arduino_cli()
+    monkeypatch.setattr(toolchain, "report_tool_command", lambda args, verbose: None)
+
+    assert main(["compile", str(source), "-o", str(tmp_path / "build"), "-v", "--arduino-cli", str(script)]) == EXIT_OK
+
+    captured = capsys.readouterr()
+    assert "$ " not in captured.out
+    assert "$ " not in captured.err
+
+
+def test_compile_without_verbose_prints_no_command(
+    source, tmp_path, fake_arduino_cli, reported_tool_commands, capsys
+):
+    """Without ``-v`` the handler still routes, and output.py stays quiet."""
+
+    script = fake_arduino_cli()
+
+    assert main(["compile", str(source), "-o", str(tmp_path / "build"), "--arduino-cli", str(script)]) == EXIT_OK
+
+    assert [verbose for _, verbose in reported_tool_commands] == [False]
+    assert "$ " not in capsys.readouterr().out
+
+
 def test_unknown_board_is_reported(source, capsys):
     assert main(["compile", str(source), "--board", "teensy"]) == EXIT_COMPILE_ERROR
     err = capsys.readouterr().err
@@ -216,6 +293,38 @@ def test_upload_compiles_and_then_uploads(source, tmp_path, fake_arduino_cli, re
     assert str(port) in out
 
 
+def test_upload_verbose_echoes_both_commands_once_each(
+    source, tmp_path, fake_arduino_cli, recorded_calls, reported_tool_commands, capsys
+):
+    script = fake_arduino_cli()
+    port = tmp_path / "ttyUSB0"
+    port.write_text("", encoding="utf-8")
+
+    code = main(
+        [
+            "upload",
+            str(source),
+            "-o",
+            str(tmp_path / "build"),
+            "-v",
+            "--port",
+            str(port),
+            "--arduino-cli",
+            str(script),
+        ]
+    )
+
+    assert code == EXIT_OK
+    # compile, then upload: one echo each, in the order they ran.
+    assert [command[1] for command, _ in reported_tool_commands] == ["compile", "upload"]
+    assert recorded_calls() == [" ".join(command[1:]) for command, _ in reported_tool_commands]
+    out = capsys.readouterr().out
+    assert out.count("$ ") == 2
+    assert [line for line in out.splitlines() if line.startswith("$ ")] == [
+        "$ " + " ".join(command) for command, _ in reported_tool_commands
+    ]
+
+
 # ---------------------------------------------------------------- other cmds
 def test_boards_lists_supported_and_planned(capsys):
     assert main(["boards"]) == EXIT_OK
@@ -230,6 +339,20 @@ def test_ports_uses_arduino_cli(fake_arduino_cli, recorded_calls, capsys):
     assert main(["ports", "--arduino-cli", str(script)]) == EXIT_OK
     assert recorded_calls() == ["board list"]
     assert "Port Protocol Type" in capsys.readouterr().out
+
+
+def test_ports_verbose_echoes_the_command_once(fake_arduino_cli, recorded_calls, reported_tool_commands, capsys):
+    script = fake_arduino_cli(stdout="Port Protocol Type")
+
+    assert main(["ports", "-v", "--arduino-cli", str(script)]) == EXIT_OK
+
+    ((command, verbose),) = reported_tool_commands
+    assert verbose is True
+    assert command == [str(script), "board", "list"]
+    assert recorded_calls() == [" ".join(command[1:])]
+    out = capsys.readouterr().out
+    assert out.count("$ ") == 1
+    assert out.splitlines()[:2] == ["$ " + " ".join(command), "Port Protocol Type"]
 
 
 def test_stubs_writes_the_ide_stub(tmp_path, capsys):
@@ -270,6 +393,62 @@ def test_stubs_output_defaults_to_the_api_stub_name(tmp_path, monkeypatch):
     assert main(["stubs"]) == EXIT_OK
 
     assert (tmp_path / "micropy_api.pyi").is_file()
+
+
+def test_stubs_overwrites_an_existing_file(tmp_path):
+    """An existing *file* is a valid target and is replaced, not refused."""
+
+    target = tmp_path / "api.pyi"
+    target.write_text("# stale\n", encoding="utf-8")
+
+    assert main(["stubs", "-o", str(target)]) == EXIT_OK
+
+    assert "def pin_mode" in target.read_text(encoding="utf-8")
+
+
+# ``-o`` names a file.  A directory is a usage error the CLI reports, not an
+# IsADirectoryError that escapes as an internal error.
+@pytest.mark.parametrize("option", STUB_OUTPUT_FORMS)
+def test_stubs_rejects_an_existing_directory(option, tmp_path, capsys):
+    target = tmp_path / "out"
+    target.mkdir()
+    keep = target / "keep.txt"
+    keep.write_text("mine\n", encoding="utf-8")
+
+    code = main(["stubs", option, str(target)])
+
+    assert code == EXIT_USAGE == 2
+    assert code != EXIT_INTERNAL
+    captured = capsys.readouterr()
+    assert f"{target} is a directory, not a stub file." in captured.err
+    assert "micropy stubs -o micropy_api.pyi" in captured.err
+    assert "internal error" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+    assert keep.read_text(encoding="utf-8") == "mine\n"
+
+
+def test_stubs_rejects_a_directory_at_the_default_path(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    Path("micropy_api.pyi").mkdir()
+
+    assert main(["stubs"]) == EXIT_USAGE
+
+    assert "is a directory, not a stub file." in capsys.readouterr().err
+
+
+def test_stubs_directory_error_stays_a_usage_error_with_debug(tmp_path, capsys):
+    """--debug re-raises bugs; a usage error is not a bug, so it still returns 2."""
+
+    target = tmp_path / "out"
+    target.mkdir()
+
+    assert main(["stubs", "--debug", "-o", str(target)]) == EXIT_USAGE
+
+    captured = capsys.readouterr()
+    assert "is a directory, not a stub file." in captured.err
+    assert "internal error" not in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_stubs_output_is_a_file_not_a_directory(cli_help):

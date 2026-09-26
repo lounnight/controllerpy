@@ -15,7 +15,14 @@ from ...arduino import compile_sketch, find_arduino_cli, list_ports, upload_sket
 from ...boards import resolve_board
 from ...compiler import compile_file
 from ..exit_codes import EXIT_OK, EXIT_USAGE
-from ..output import report_compiled, report_error, report_generated, report_tool_output, report_uploaded
+from ..output import (
+    report_compiled,
+    report_error,
+    report_generated,
+    report_tool_command,
+    report_tool_output,
+    report_uploaded,
+)
 from ..utils import arduino_build_path, sketch_name, write_ino
 
 __all__ = ["cmd_compile", "cmd_ports", "cmd_upload"]
@@ -38,6 +45,7 @@ def cmd_compile(args: argparse.Namespace) -> int:
         verbose=args.verbose,
         build_path=build_path,
     )
+    report_tool_command(command.args, args.verbose)
     report_tool_output(command.stdout, args.verbose)
     report_generated(path)
     report_compiled(target, board)
@@ -69,6 +77,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
         verbose=args.verbose,
         build_path=build_path,
     )
+    report_tool_command(compiled.args, args.verbose)
     report_tool_output(compiled.stdout, args.verbose)
     uploaded = upload_sketch(
         target,
@@ -78,6 +87,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
         verbose=args.verbose,
         build_path=build_path,
     )
+    report_tool_command(uploaded.args, args.verbose)
     report_tool_output(uploaded.stdout, args.verbose)
 
     report_generated(path)
@@ -89,6 +99,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
 def cmd_ports(args: argparse.Namespace) -> int:
     executable = find_arduino_cli(args.arduino_cli)
     result = list_ports(arduino_cli=executable, verbose=args.verbose)
+    report_tool_command(result.args, args.verbose)
     output = result.stdout.strip()
 
     print(output if output else "No boards found.")

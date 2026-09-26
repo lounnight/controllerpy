@@ -13,7 +13,12 @@ from pathlib import Path
 
 from ...boards import DEFAULT_BOARD, PLANNED_BOARDS, supported_boards
 from ..exit_codes import EXIT_OK, EXIT_USAGE
-from ..output import report_board_table, report_conflicts, report_written_files
+from ..output import (
+    report_board_table,
+    report_conflicts,
+    report_error,
+    report_written_files,
+)
 from ..utils import write_api_stub
 
 __all__ = ["cmd_boards", "cmd_init", "cmd_stubs"]
@@ -23,6 +28,8 @@ PYRIGHT_CONFIG_NAME = "pyrightconfig.json"
 BUILTINS_STUB_NAME = "main.py"
 
 PYRIGHT_CONFIG_JSON = '{\n  "include": ["*.py"],\n  "extraPaths": ["."]\n}'
+
+_STUB_TARGET_HINT = f"Pass a file name, for example: micropy stubs -o {STUB_NAME}"
 
 BUILTINS_STUB = (
     "# Write your arduino code here\n"
@@ -56,6 +63,11 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_stubs(args: argparse.Namespace) -> int:
     target = Path(args.output)
+    if target.is_dir():
+        report_error(f"{target} is a directory, not a stub file.")
+        report_error(_STUB_TARGET_HINT)
+        return EXIT_USAGE
+
     write_api_stub(target)
     print(f"Wrote {target}")
     print("Add 'from micropy_api import *' to your program for IDE autocompletion.")

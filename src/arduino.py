@@ -83,8 +83,6 @@ def run(
     ) -> CommandResult:
 
     command = [executable, *args]
-    if verbose:
-        print("$ " + " ".join(command))
     try:
         completed = subprocess.run(command, capture_output=True, text=True, cwd=cwd)
     except OSError as exc:
