@@ -55,6 +55,10 @@ class MicropyError(Exception):
         return self.format()
 
 
+#: Legacy name of :class:`MicropyError`, kept for the first prototype's API.
+ArduinoPyError = MicropyError
+
+
 class ArduinoCliError(MicropyError):
     """Raised when arduino-cli is missing or the toolchain call failed."""
 

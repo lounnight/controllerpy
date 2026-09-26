@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import textwrap
 from pathlib import Path
@@ -11,10 +12,25 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
-from micropy.compiler import compile_source  # noqa: E402  (after sys.path setup)
+
+def _load_source_package() -> None:
+    """Make ``src/`` importable as ``micropy`` so the suite runs without installing."""
+
+    if importlib.util.find_spec("micropy") is not None:
+        return
+    spec = importlib.util.spec_from_file_location(
+        "micropy", SRC / "__init__.py", submodule_search_locations=[str(SRC)]
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["micropy"] = module
+    spec.loader.exec_module(module)
+
+
+_load_source_package()
+
+from micropy.compiler import compile_source  # noqa: E402  (after the sys.path setup)
 from micropy.errors import MicropyError  # noqa: E402
 
 EXPECTED_DIR = Path(__file__).resolve().parent / "expected"

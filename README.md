@@ -61,10 +61,11 @@ python3 -m venv .venv
 Only the standard library is required at runtime. `arduino-cli` is optional -
 it is needed for `micropy compile` and `micropy upload` only.
 
-If you prefer not to install anything, run the CLI from a checkout:
+If you prefer not to install anything, run the CLI from a checkout. `src/` is
+the package itself, so the module is started from the repository root:
 
 ```bash
-PYTHONPATH=src python3 -m micropy build main.py
+python3 -m src build main.py
 ```
 
 ## Quick start
@@ -395,7 +396,7 @@ micropy/
 ├── main.py                     the acceptance example from the spec
 ├── compiler.py                 deprecated single-file prototype (kept)
 ├── examples/                   blink, button, loops, oop, serial
-├── src/micropy/
+├── src/                        the micropy package
 │   ├── cli.py                  argparse CLI
 │   ├── boards.py               board (FQBN) registry
 │   ├── arduino.py              arduino-cli integration
@@ -410,6 +411,10 @@ micropy/
 │   └── runtime/api.pyi         IDE stub (never uploaded)
 └── tests/                      pytest suite + expected C++ snapshots
 ```
+
+`src/` *is* the `micropy` package: `pyproject.toml` maps the directory to the
+import name (`[tool.setuptools.package-dir] micropy = "src"`), so the sources
+stay flat and there is no nested `micropy/` directory to import through.
 
 ## Extending
 
