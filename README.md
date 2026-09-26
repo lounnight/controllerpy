@@ -397,7 +397,16 @@ micropy/
 ├── compiler.py                 deprecated single-file prototype (kept)
 ├── examples/                   blink, button, loops, oop, serial
 ├── src/                        the micropy package
-│   ├── cli.py                  argparse CLI
+│   ├── cli/                    the argparse front end
+│   │   ├── main.py               entry point: parse, dispatch, errors -> exit code
+│   │   ├── parser.py             every command, argument and option
+│   │   ├── commands/             one module per kind of command
+│   │   │   ├── sketch.py            build, check, clean
+│   │   │   ├── toolchain.py         compile, upload, ports
+│   │   │   └── project.py           init, stubs, boards
+│   │   ├── output.py             what the CLI prints
+│   │   ├── exit_codes.py         the exit-code contract
+│   │   └── utils.py              sketch naming, build/ layout
 │   ├── boards.py               board (FQBN) registry
 │   ├── arduino.py              arduino-cli integration
 │   ├── errors.py               MicropyError / ArduinoCliError
@@ -444,6 +453,13 @@ prints expressions, `declarations` prints what they are stored in, `statements`
 prints the bodies that hold both, and `generator.py` runs the emission passes
 in the only order that produces valid C++.
 
+The CLI is a thin front end over the three stages: `parser.py` defines what
+each command accepts, `commands/` decide *which* job to do (`compile_file` for
+a source, `micropy.arduino` for the toolchain), `output.py` renders the result
+and `main.py` turns it into an exit code. It never reaches into a stage's
+internals, and `commands/` never imports `main` or `parser`, so a command can
+be added in one module plus one line in `parser.py`.
+
 ## Extending
 
 * **New board**: add a `Board` to `BOARDS` in `boards.py` (`nano`, `mega` and
@@ -455,6 +471,8 @@ in the only order that produces valid C++.
 * **New API function**: add an `ApiFunction` to `API_FUNCTIONS` in
   `compiler/validator/api.py` (Python name, C++ name, arity, return type) -
   validation, hints and code generation all read that table.
+* **New CLI command**: add a handler to the matching `cli/commands/` module and
+  register it in `cli/parser.py`.
 
 ## Known limitations
 
