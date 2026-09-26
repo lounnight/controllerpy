@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -143,7 +144,10 @@ def test_build_writes_build_main_ino(source, tmp_path, capsys):
     assert generated.read_text(encoding="utf-8").startswith("const int LED = 13;\n")
     assert "const int LED = 13;" in generated.read_text(encoding="utf-8")
     out = capsys.readouterr().out
-    assert "Generated" in out
+    assert output.STEP in out and "Compiling" in out
+    assert output.SUCCESS in out and "Build complete" in out
+    # The file that was written is named, with its size.
+    assert str(generated) in out
     assert "lines" in out
 
 
@@ -170,9 +174,10 @@ def test_build_reports_source_errors_without_a_traceback(tmp_path, capsys):
     broken.write_text("def main():\n    pass\n", encoding="utf-8")
     assert main(["build", str(broken), "-o", str(tmp_path / "build")]) == EXIT_COMPILE_ERROR
     captured = capsys.readouterr()
-    assert "MicropyError:" in captured.err
-    assert "Missing required function: loop()" in captured.err
-    assert "Traceback" not in captured.err
+    err = captured.err
+    assert err.startswith(f"  {output.FAILURE} MicropyError")
+    assert "Missing required function: loop()" in err
+    assert "Traceback" not in err
     assert not (tmp_path / "build").exists()
 
 
@@ -180,7 +185,12 @@ def test_build_reports_syntax_errors_with_a_location(tmp_path, capsys):
     broken = tmp_path / "broken.py"
     broken.write_text("def main(:\n", encoding="utf-8")
     assert main(["build", str(broken), "-o", str(tmp_path / "build")]) == EXIT_COMPILE_ERROR
-    assert "broken.py:1" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "broken.py:1" in err
+    # The location gets a line of its own, so it can be spotted without
+    # reading the rest of the block.
+    location = next(line for line in err.splitlines() if "broken.py:1" in line)
+    assert location.strip() == f"{broken}:1:10"
 
 
 def test_build_missing_file(tmp_path, capsys):
@@ -222,7 +232,7 @@ def test_clean_without_output_is_friendly(tmp_path, capsys):
 def test_compile_without_arduino_cli_explains_the_install(source, no_arduino_cli, capsys):
     assert main(["compile", str(source), "--board", "uno"]) == EXIT_TOOLCHAIN
     err = capsys.readouterr().err
-    assert "ArduinoCliError:" in err
+    assert err.startswith(f"  {output.FAILURE} ArduinoCliError")
     assert INSTALL_URL in err
 
 
@@ -237,7 +247,9 @@ def test_compile_invokes_arduino_cli(source, tmp_path, fake_arduino_cli, recorde
     assert len(calls) == 1
     assert calls[0].startswith("compile --fqbn arduino:avr:uno")
     assert str(build / "main") in calls[0]
-    assert "Compiled" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert f"  {output.SUCCESS} Compile complete" in out
+    assert "Arduino Uno" in _fact_row(out, output.BOARD)
 
 
 def test_compile_reports_a_failing_toolchain(source, tmp_path, fake_arduino_cli, capsys):
@@ -264,10 +276,14 @@ def test_compile_verbose_echoes_the_command_through_output(
     assert command[0] == str(script)
     assert command[1] == "compile"
     assert recorded_calls() == [" ".join(command[1:])]
-    # And it reached stdout exactly once, ahead of the tool's own output.
+    # And it reached stdout exactly once, in the left margin, after the step
+    # that announced the work and before the result.
     out = capsys.readouterr().out
+    lines = out.splitlines()
     assert out.count("$ ") == 1
-    assert out.splitlines()[0] == "$ " + " ".join(command)
+    assert lines[0] == f"  {output.STEP} Compiling {source} for Arduino Uno"
+    assert lines[1] == "$ " + " ".join(command)
+    assert f"  {output.SUCCESS} Compile complete" in out
 
 
 def test_compile_verbose_echo_does_not_come_from_the_toolchain(
@@ -353,8 +369,8 @@ def test_upload_compiles_and_then_uploads(source, tmp_path, fake_arduino_cli, re
     assert calls[0].startswith("compile --fqbn arduino:avr:uno")
     assert calls[1].startswith(f"upload --fqbn arduino:avr:uno --port {port}")
     out = capsys.readouterr().out
-    assert "Uploaded" in out
-    assert str(port) in out
+    assert f"  {output.SUCCESS} Upload complete" in out
+    assert str(port) in _fact_row(out, output.PORT)
 
 
 def test_upload_verbose_echoes_both_commands_once_each(
@@ -561,10 +577,12 @@ def test_init_creates_the_ide_files(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "pyrightconfig.json").exists()
     assert (tmp_path / "main.py").exists()
     out = capsys.readouterr().out
-    assert "Initialized Micropy project." in out
-    assert "  ✓ micropy_api.pyi" in out
-    assert "  ✓ pyrightconfig.json" in out
+    assert f"  {output.SUCCESS} Initialized Micropy project" in out
+    created = out.split("Created:", 1)[1]
+    for name in ("micropy_api.pyi", "pyrightconfig.json", "main.py"):
+        assert f"    {name}" in created
     assert "Your IDE is now configured for Micropy." in out
+    assert "micropy check main.py" in out
 
 
 def test_init_writes_a_pyright_config_that_discovers_the_stub(tmp_path, monkeypatch):
@@ -713,6 +731,164 @@ def test_a_command_is_required(capsys):
     assert caught.value.code == EXIT_USAGE
 
 
+# ------------------------------------------------------------------ warnings
+def test_init_force_says_what_it_replaced(tmp_path, monkeypatch, capsys):
+    """--force is consent to overwrite, but not a reason to do it silently."""
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "micropy_api.pyi").write_text("# mine\n", encoding="utf-8")
+
+    assert main(["init", "--force"]) == EXIT_OK
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith(f"  {output.WARNING} ")
+    assert "Overwriting" in captured.err
+    assert "micropy_api.pyi" in captured.err
+    assert "Initialized Micropy project" in captured.out
+
+
+def test_init_without_force_has_nothing_to_warn_about(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == EXIT_OK
+    assert capsys.readouterr().err == ""
+
+
+def test_stubs_says_when_it_replaces_a_file(tmp_path, capsys):
+    target = tmp_path / "api.pyi"
+    target.write_text("# stale\n", encoding="utf-8")
+
+    assert main(["stubs", "-o", str(target)]) == EXIT_OK
+
+    captured = capsys.readouterr()
+    assert "Overwriting" in captured.err
+    assert "api.pyi" in captured.err
+    assert f"Wrote {target}" in captured.out
+
+
+def test_stubs_is_quiet_when_there_is_nothing_to_replace(tmp_path, capsys):
+    assert main(["stubs", "-o", str(tmp_path / "api.pyi")]) == EXIT_OK
+    assert capsys.readouterr().err == ""
+
+
+# ---------------------------------------------------------------------- help
+COMMANDS = ["init", "build", "check", "clean", "compile", "upload", "ports", "boards", "stubs"]
+
+
+def _fact_row(out: str, label: str) -> str:
+    """The value on a facts row, found by its label rather than its padding."""
+
+    for line in out.splitlines():
+        if line.strip().startswith(label):
+            return line.strip()
+
+    raise AssertionError(f"no {label!r} row in:\n{out}")
+
+
+def test_the_top_level_help_leads_with_the_wordmark_and_the_tagline(capsys):
+    """The one screen that introduces micropy is also the one that is branded."""
+
+    with pytest.raises(SystemExit):
+        main(["--help"])
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("  MicroPy ")
+    assert __version__ in lines[0]
+    assert lines[1].startswith("  Write Arduino programs")
+    assert lines[3].startswith("usage: micropy ")
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+def test_no_subcommand_repeats_the_wordmark(command, cli_help):
+    """A mark on the root screen is an introduction; on every command it is wallpaper."""
+
+    assert "MicroPy" not in cli_help(command)
+
+
+def test_the_wordmark_is_painted_on_a_terminal_but_not_in_a_pipe(terminal, monkeypatch):
+    out, _ = terminal()
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    painted = out.getvalue()
+
+    assert re.search(r"\033\[36;1mMicroPy\033\[0m", painted)
+
+    plain, _ = terminal()
+    monkeypatch.setenv("NO_COLOR", "1")
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert plain.getvalue().splitlines()[0].startswith("  MicroPy ")
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+def test_every_command_has_help_that_exits_cleanly(command, capsys):
+    """--help is documentation, not a failure: exit code 0, and it opens with usage."""
+
+    with pytest.raises(SystemExit) as caught:
+        main([command, "--help"])
+
+    assert caught.value.code == 0
+    assert capsys.readouterr().out.startswith(f"usage: micropy {command} ")
+
+
+def test_the_top_level_help_lists_every_command_and_says_how_to_learn_more(capsys):
+    with pytest.raises(SystemExit) as caught:
+        main(["--help"])
+
+    out = capsys.readouterr().out
+    assert caught.value.code == 0
+    for command in COMMANDS:
+        assert re.search(rf"^\s+{command}\s+\S", out, re.MULTILINE), command
+    assert "--debug" in out
+    assert "examples:" in out
+    assert "micropy COMMAND --help" in out
+
+
+@pytest.mark.parametrize("command", ["build", "check", "compile", "upload"])
+def test_a_command_that_takes_a_program_shows_a_way_to_run_it(command, cli_help):
+    help_text = cli_help(command)
+    assert "examples:" in help_text
+    assert f"micropy {command} main.py" in help_text
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+def test_help_carries_no_escapes_when_the_output_is_not_a_terminal(command, cli_help):
+    """A pipe, a file and CI get plain help, argparse's own colouring included."""
+
+    assert "\033[" not in cli_help(command)
+
+
+@pytest.mark.parametrize("command", [None, "build", "ports"])
+def test_no_color_silences_the_help_screen_itself(command, terminal, monkeypatch):
+    """Python 3.14's argparse paints help; micropy decides whether it may.
+
+    Without this the help screen would be the one output ``NO_COLOR`` did not
+    reach, because argparse applies its own rules rather than ours.
+    """
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    painted, _ = terminal()
+    argv = ["--help"] if command is None else [command, "--help"]
+
+    with pytest.raises(SystemExit):
+        main(argv)
+
+    assert "\033[" not in painted.getvalue()
+
+
+def test_the_source_commands_document_their_common_options(cli_help):
+    for command in ("build", "check", "compile", "upload"):
+        help_text = cli_help(command)
+        assert "--output-dir OUTPUT_DIR" in help_text
+        assert "-v, --verbose" in help_text
+
+
+def test_the_toolchain_commands_document_the_toolchain_options(cli_help):
+    for command in ("compile", "upload", "ports"):
+        assert "--arduino-cli PATH" in cli_help(command)
+    assert "-b, --board" in cli_help("compile")
+    assert "-p, --port" in cli_help("upload")
+
+
 # --------------------------------------------------------------------- --debug
 #: ``--debug`` is a global flag, so it has to work before the command, right
 #: after it, and after the command's own arguments - for every command.
@@ -788,7 +964,8 @@ def test_without_debug_the_same_failure_stays_quiet(argv, source, tmp_path, monk
 
     assert main(resolved) == EXIT_INTERNAL
     err = capsys.readouterr().err
-    assert "micropy: internal error: RuntimeError: boom" in err
+    assert err.startswith(f"  {output.FAILURE} Internal error: RuntimeError: boom")
+    assert "Please re-run with --debug and report this." in err
     assert "Traceback" not in err
 
 

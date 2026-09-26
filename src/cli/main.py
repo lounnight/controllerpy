@@ -21,7 +21,7 @@ from typing import Callable, Optional, Sequence
 
 from ..errors import ArduinoCliError, MicropyError
 from .exit_codes import EXIT_COMPILE_ERROR, EXIT_INTERRUPTED, EXIT_INTERNAL, EXIT_TOOLCHAIN
-from .output import report_error, report_internal_error, report_interrupted
+from .output import report_exception, report_internal_error, report_interrupted
 from .parser import build_parser
 
 __all__ = ["main"]
@@ -37,7 +37,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except MicropyError as exc:
         if args.debug:
             raise
-        report_error(exc.format())
+        report_exception(exc)
         return EXIT_TOOLCHAIN if isinstance(exc, ArduinoCliError) else EXIT_COMPILE_ERROR
     except KeyboardInterrupt:
         report_interrupted()

@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import textwrap
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+
+
+class _Terminal(io.StringIO):
+    """A stream that claims to be a terminal, for the tests that need one."""
+
+    def isatty(self) -> bool:
+        return True
 
 
 def _load_source_package() -> None:
@@ -34,6 +42,41 @@ from micropy.compiler import compile_source  # noqa: E402  (after the sys.path s
 from micropy.errors import MicropyError  # noqa: E402
 
 EXPECTED_DIR = Path(__file__).resolve().parent / "expected"
+
+
+@pytest.fixture(autouse=True)
+def plain_colour_environment(monkeypatch) -> None:
+    """Start every test from a known colour environment.
+
+    ``NO_COLOR``, ``FORCE_COLOR`` and ``TERM`` are the user's shell, not the
+    code's, and a developer who exports any of them would otherwise see a
+    different suite from CI.  Tests that care about colour set them back
+    themselves; this only removes what is already there.
+    """
+
+    for name in ("NO_COLOR", "FORCE_COLOR"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("TERM", raising=False)
+
+
+@pytest.fixture
+def terminal(monkeypatch) -> Callable[[], Tuple[io.StringIO, io.StringIO]]:
+    """Swap in a stdout and stderr that look like a terminal, and keep them.
+
+    This returns a callable that has to be *called inside the test body* rather
+    than doing the patching in the fixture itself: pytest restores ``sys.stdout``
+    when it suspends its own capture for the call phase, which would undo a
+    fixture's patch before the command under test ever ran.
+    """
+
+    def install() -> Tuple[io.StringIO, io.StringIO]:
+        out, err = _Terminal(), _Terminal()
+        monkeypatch.setattr(sys, "stdout", out)
+        monkeypatch.setattr(sys, "stderr", err)
+
+        return out, err
+
+    return install
 
 
 def clean(source: str) -> str:

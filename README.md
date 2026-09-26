@@ -118,6 +118,55 @@ Exit codes: `0` success, `1` source/compiler error, `2` usage error (for
 example a missing `--port`), `3` arduino-cli missing or failed, `70` internal
 error.
 
+### Reading the output
+
+Every command speaks the same visual language, so a run can be skimmed without
+reading it. A line starts with a symbol that says what kind of line it is,
+anything that qualifies that line is indented under it, and a result with more
+than one thing to report ends in an aligned block of facts:
+
+| Symbol | Meaning |
+| --- | --- |
+| `→` | something is happening right now |
+| `✓` | it worked |
+| `!` | a warning - the command carried on, but look at this |
+| `✗` | it failed |
+
+```bash
+$ micropy build main.py
+  → Compiling main.py
+  ✓ Build complete
+
+    Output  build/main.ino (42 lines)
+```
+
+```bash
+$ micropy upload main.py --board uno -p /dev/ttyACM0
+  → Compiling main.py for Arduino Uno
+  → Uploading to /dev/ttyACM0
+  ✓ Upload complete
+
+    Sketch  build/main
+    Board   Arduino Uno
+    Port    /dev/ttyACM0
+    Output  build/main.ino
+```
+
+The labels in a block like that are dimmed and the values are not, so the paths,
+boards and ports are what the eye lands on. The success line says the job is
+done; the block says what it was done to.
+
+Colours follow the same rule: cyan for work in progress, green for success,
+yellow for a warning, red for a failure, dim for everything secondary. Colour is
+only ever decoration - every line means the same thing without it. It is switched
+off automatically when the output is redirected into a file or a pipe, when
+`NO_COLOR` is set (any non-empty value, as [no-color.org](https://no-color.org)
+defines it), or when `TERM=dumb`, so scripts and CI always get plain text.
+`FORCE_COLOR=1` turns colour on for a stream that is not a terminal.
+
+Add `-v` to see the `arduino-cli` command that ran, in the left margin like a
+shell would show it, with the tool's own output indented underneath.
+
 ### Where files are written
 
 ```text
@@ -331,43 +380,52 @@ commands copy the same bundled stub, so new API names reach both.
 
 ## Errors
 
-Normal problems never produce a traceback:
+Normal problems never produce a traceback. The failure is a `✗` line, and
+everything the error knows is indented under it - the file and position first,
+then what went wrong, then the advice, labelled `hint:` so its role is obvious
+before you read it:
 
 ```text
-MicropyError:
-  main.py:8:5
+  ✗ MicropyError
 
+  main.py:8:5
   Unknown ArduinoPy function: foo()
 
-  Supported Arduino functions include:
-    analog_read()
-    analog_write()
-    delay()
-    digital_read()
-    ...
+    hint: Known names:
+      analog_read
+      analog_write
+      delay
+      digital_read
+      ...
 ```
 
 Other examples:
 
 ```text
-MicropyError:
-  main.py:1:1
+  ✗ MicropyError
 
+  main.py:1:1
   Unsupported Python feature: async function
 ```
 
 ```text
-ArduinoCliError:
+  ✗ ArduinoCliError
 
   arduino-cli was not found.
 
-  micropy needs the Arduino CLI to compile and upload sketches:
-    1. Install the Arduino CLI: https://arduino.github.io/arduino-cli/latest/installation/
-    2. Install the AVR core for the Uno: arduino-cli core install arduino:avr
-    ...
+    hint: Check the path, or install the Arduino CLI:
+      1. Install the Arduino CLI: https://arduino.github.io/arduino-cli/latest/installation/
+      2. Install the AVR core for the Uno: arduino-cli core install arduino:avr
+      3. Or point micropy at an existing binary:
+           micropy compile main.py --arduino-cli /path/to/arduino-cli
+           (or set the MICROPY_ARDUINO_CLI environment variable)
+
+      'micropy build' and 'micropy check' work without arduino-cli.
 ```
 
-Use `--debug` to see the underlying traceback when a bug is suspected.
+Every word the error carries is printed: the title, the location, the message,
+the hint and every hint line. Use `--debug` to see the underlying traceback when
+a bug is suspected.
 
 ## How it works
 
@@ -419,7 +477,8 @@ micropy/
 │   │   │   ├── sketch.py            build, check, clean
 │   │   │   ├── toolchain.py         compile, upload, ports
 │   │   │   └── project.py           init, stubs, boards
-│   │   ├── output.py             what the CLI prints
+│   │   ├── output.py             what the CLI prints: symbols, streams, layout
+│   │   ├── style.py              whether colour is allowed, and the codes
 │   │   ├── exit_codes.py         the exit-code contract
 │   │   └── utils.py              sketch naming, build/ layout
 │   ├── boards.py               board (FQBN) registry
@@ -478,6 +537,12 @@ and `main.py` turns it into an exit code. It never reaches into a stage's
 internals, and `commands/` never imports `main` or `parser`, so a command can
 be added in one module plus one line in `parser.py`.
 
+Presentation is split in two as well: `output.py` owns the vocabulary (which
+symbol, which stream, how far to indent) and `style.py` owns the only question
+colour raises, which is whether a given stream may be painted at all. Neither
+knows anything about a compiler or a board, and `arduino.py` still runs
+commands without printing a thing - the handler reports, `output.py` renders.
+
 ## Extending
 
 * **New board**: add a `Board` to `BOARDS` in `boards.py` (`nano`, `mega` and
@@ -516,7 +581,7 @@ be added in one module plus one line in `parser.py`.
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
-.venv/bin/python -m pytest          # 250 tests, including C++ snapshots
+.venv/bin/python -m pytest          # 432 tests, including C++ snapshots
 .venv/bin/micropy build main.py && cat build/main.ino
 ```
 
