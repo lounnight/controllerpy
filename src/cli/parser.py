@@ -9,7 +9,7 @@ one-file edit.  The handlers come from :mod:`.commands` and are attached with
 from __future__ import annotations
 
 import argparse
-from typing import Callable
+from typing import Callable, TypeAlias
 
 from .. import __version__
 from ..boards import DEFAULT_BOARD
@@ -34,7 +34,7 @@ DEFAULT_OUTPUT_DIR = "build"
 DEBUG_HELP = "show internal tracebacks (for bug reports)"
 
 Handler = Callable[[argparse.Namespace], int]
-SubParsers = "argparse._SubParsersAction[argparse.ArgumentParser]"
+SubParsers: TypeAlias = "argparse._SubParsersAction[argparse.ArgumentParser]"
 
 
 def _shared_options() -> argparse.ArgumentParser:
