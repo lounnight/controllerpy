@@ -121,6 +121,44 @@ def test_pulse_in_cannot_be_redefined(error):
     )
 
 
+def test_arity_is_checked_for_tone_and_no_tone(error):
+    error(
+        "def main():\n    tone(8)\n\ndef loop():\n    pass\n",
+        message="tone() takes 2 to 3 arguments but 1 was given.",
+        line=2,
+        col=5,
+    )
+    error(
+        "def main():\n    tone(8, 1000, 500, 1)\n\ndef loop():\n    pass\n",
+        message="tone() takes 2 to 3 arguments but 4 were given.",
+        line=2,
+        col=5,
+    )
+    error(
+        "def main():\n    noTone()\n\ndef loop():\n    pass\n",
+        message="noTone() takes exactly 1 argument but 0 were given.",
+        line=2,
+        col=5,
+    )
+    error(
+        "def main():\n    noTone(8, 9)\n\ndef loop():\n    pass\n",
+        message="noTone() takes exactly 1 argument but 2 were given.",
+        line=2,
+        col=5,
+    )
+
+
+def test_tone_names_cannot_be_redefined(error):
+    error(
+        "def tone(pin, frequency):\n    pass\n\ndef main():\n    pass\n\ndef loop():\n    pass\n",
+        message="'tone' is an ArduinoPy function and cannot be redefined.",
+    )
+    error(
+        "def noTone(pin):\n    pass\n\ndef main():\n    pass\n\ndef loop():\n    pass\n",
+        message="'noTone' is an ArduinoPy function and cannot be redefined.",
+    )
+
+
 def test_arity_is_checked_for_user_functions(error):
     error(
         """

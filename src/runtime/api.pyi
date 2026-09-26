@@ -64,6 +64,12 @@ def micros() -> int:
 def pulseIn(pin: int, state: int, timeout: int = 1000000) -> int:
     """Measure the duration of a pulse on a digital pin in microseconds."""
     ...
+def tone(pin: int, frequency: int, duration: int = ...) -> None:
+    """Play a tone of the given frequency in hertz on a pin."""
+    ...
+def noTone(pin: int) -> None:
+    """Stop the tone playing on a pin."""
+    ...
 
 # serial
 def serial_begin(baud: int) -> None:

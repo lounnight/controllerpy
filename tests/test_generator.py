@@ -903,3 +903,42 @@ def test_pulse_in_result_updates_an_int_global_from_a_function(program):
     assert "int timing = 0;" in cpp
     assert "timing = pulseIn(echo_pin, HIGH);" in cpp
     assert cpp.count("int timing") == 1
+
+
+def test_tone_and_no_tone_map_to_the_arduino_functions(program):
+    cpp = program(
+        """
+        def main():
+            tone(8, 1000)
+
+        def loop():
+            tone(8, 1000, 500)
+            noTone(8)
+        """
+    )
+    assert "tone(8, 1000);" in cpp
+    assert "tone(8, 1000, 500);" in cpp
+    assert "noTone(8);" in cpp
+
+
+def test_tone_accepts_a_pin_variable_and_a_computed_frequency(program):
+    cpp = program(
+        """
+        BUZZER = 8
+        BASE = 440
+
+        def main():
+            pin_mode(BUZZER, OUTPUT)
+
+        def loop():
+            tone(BUZZER, BASE * 2)
+            tone(BUZZER, 880, 250)
+            noTone(BUZZER)
+        """
+    )
+    assert "const int BUZZER = 8;" in cpp
+    assert "const int BASE = 440;" in cpp
+    assert "pinMode(BUZZER, OUTPUT);" in cpp
+    assert "tone(BUZZER, BASE * 2);" in cpp
+    assert "tone(BUZZER, 880, 250);" in cpp
+    assert "noTone(BUZZER);" in cpp

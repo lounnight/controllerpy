@@ -267,6 +267,7 @@ work without a `global` statement).
 | `delay_microseconds(us)` | `delayMicroseconds(us)` |
 | `millis()` / `micros()` | `millis()` / `micros()` |
 | `pulseIn(pin, state[, timeout])` | `pulseIn(pin, state[, timeout])` |
+| `tone(pin, frequency[, duration])` / `noTone(pin)` | `tone(pin, frequency[, duration])` / `noTone(pin)` |
 | `serial_begin(baud)` | `Serial.begin(baud)` |
 | `serial_print(value)` / `serial_println(value)` | `Serial.print(...)` / `Serial.println(...)` |
 | `serial_available()` / `serial_read()` | `Serial.available()` / `Serial.read()` |
@@ -279,6 +280,10 @@ and other C++ style calls also work unchanged.
 
 `pulseIn(pin, state[, timeout])` measures the duration of a `HIGH` or `LOW`
 pulse on a pin in microseconds; the optional `timeout` defaults to 1000000.
+
+`tone(pin, frequency[, duration])` plays a square wave of `frequency` hertz on a
+pin; the optional `duration` stops it after that many milliseconds, and
+`noTone(pin)` stops it early.
 
 ### Classes
 

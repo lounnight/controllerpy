@@ -641,6 +641,8 @@ def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
         "millis",
         "micros",
         "pulseIn",
+        "tone",
+        "noTone",
         "serial_begin",
         "serial_print",
         "serial_println",
@@ -670,6 +672,8 @@ def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
     for name in constants:
         assert api.constants.get(name) == "int", f"{name} missing from the stub"
     assert api.signature("pulseIn") == "(pin: int, state: int, timeout: int = 1000000) -> int"
+    assert api.signature("tone") == "(pin: int, frequency: int, duration: int = ...) -> None"
+    assert api.signature("noTone") == "(pin: int) -> None"
 
 
 def test_stub_return_annotations_match_the_api_table():
