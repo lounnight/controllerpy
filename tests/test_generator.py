@@ -823,3 +823,38 @@ def test_arduino_constants_are_never_replaced_by_numbers(program):
     assert "pinMode(2, INPUT_PULLUP);" in cpp
     assert "digitalWrite(4, LOW);" in cpp
     assert "digitalWrite(5, HIGH);" in cpp
+
+
+def test_pulse_in_maps_to_the_arduino_function(program):
+    cpp = program(
+        """
+        def main():
+            pin_mode(7, INPUT)
+            pulseIn(7, HIGH)
+
+        def loop():
+            duration = pulseIn(7, HIGH)
+            released = pulseIn(8, LOW)
+            bounded = pulseIn(9, HIGH, 500000)
+        """
+    )
+    assert "pinMode(7, INPUT);" in cpp
+    assert "pulseIn(7, HIGH);" in cpp
+    assert "long duration = pulseIn(7, HIGH);" in cpp
+    assert "long released = pulseIn(8, LOW);" in cpp
+    assert "long bounded = pulseIn(9, HIGH, 500000);" in cpp
+
+
+def test_pulse_in_result_is_used_like_any_other_value(program):
+    cpp = program(
+        """
+        def main():
+            pass
+
+        def loop():
+            duration = pulseIn(7, HIGH)
+            serial_println(duration)
+        """
+    )
+    assert "long duration = pulseIn(7, HIGH);" in cpp
+    assert "Serial.println(duration);" in cpp

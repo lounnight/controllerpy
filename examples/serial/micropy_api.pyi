@@ -61,6 +61,9 @@ def millis() -> int:
 def micros() -> int:
     """Return the number of microseconds since the Arduino started."""
     ...
+def pulseIn(pin: int, state: int, timeout: int = 1000000) -> int:
+    """Measure the duration of a pulse on a digital pin in microseconds."""
+    ...
 
 # serial
 def serial_begin(baud: int) -> None:

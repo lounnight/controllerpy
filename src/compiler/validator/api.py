@@ -99,6 +99,7 @@ API_FUNCTIONS: Dict[str, ApiFunction] = {
         _api("delay_microseconds", "delayMicroseconds", 1, 1),
         _api("millis", "millis", 0, 0, "int"),
         _api("micros", "micros", 0, 0, "int"),
+        _api("pulseIn", "pulseIn", 2, 3, "long"),
         _api("serial_begin", "begin", 1, 1, receiver="Serial"),
         _api("serial_end", "end", 0, 0, receiver="Serial"),
         _api("serial_flush", "flush", 0, 0, receiver="Serial"),

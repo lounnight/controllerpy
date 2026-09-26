@@ -638,6 +638,7 @@ def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
         "delay_microseconds",
         "millis",
         "micros",
+        "pulseIn",
         "serial_begin",
         "serial_print",
         "serial_println",
@@ -666,6 +667,7 @@ def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
         assert name in api.functions, f"{name}() missing from the stub"
     for name in constants:
         assert api.constants.get(name) == "int", f"{name} missing from the stub"
+    assert api.signature("pulseIn") == "(pin: int, state: int, timeout: int = 1000000) -> int"
 
 
 def test_init_and_stubs_copy_the_same_source_stub(tmp_path, monkeypatch):

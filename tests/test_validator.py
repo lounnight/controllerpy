@@ -98,6 +98,28 @@ def test_arity_is_checked_for_arduino_functions(error):
     )
 
 
+def test_arity_is_checked_for_pulse_in(error):
+    error(
+        "def main():\n    pulseIn(7)\n\ndef loop():\n    pass\n",
+        message="pulseIn() takes 2 to 3 arguments but 1 was given.",
+        line=2,
+        col=5,
+    )
+    error(
+        "def main():\n    pulseIn(7, HIGH, 500, 1)\n\ndef loop():\n    pass\n",
+        message="pulseIn() takes 2 to 3 arguments but 4 were given.",
+        line=2,
+        col=5,
+    )
+
+
+def test_pulse_in_cannot_be_redefined(error):
+    error(
+        "def pulseIn(pin):\n    pass\n\ndef main():\n    pass\n\ndef loop():\n    pass\n",
+        message="'pulseIn' is an ArduinoPy function and cannot be redefined.",
+    )
+
+
 def test_arity_is_checked_for_user_functions(error):
     error(
         """

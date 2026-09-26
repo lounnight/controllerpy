@@ -266,6 +266,7 @@ work without a `global` statement).
 | `delay(ms)` | `delay(ms)` |
 | `delay_microseconds(us)` | `delayMicroseconds(us)` |
 | `millis()` / `micros()` | `millis()` / `micros()` |
+| `pulseIn(pin, state[, timeout])` | `pulseIn(pin, state[, timeout])` |
 | `serial_begin(baud)` | `Serial.begin(baud)` |
 | `serial_print(value)` / `serial_println(value)` | `Serial.print(...)` / `Serial.println(...)` |
 | `serial_available()` / `serial_read()` | `Serial.available()` / `Serial.read()` |
@@ -275,6 +276,9 @@ Constants (`HIGH`, `LOW`, `INPUT`, `OUTPUT`, `INPUT_PULLUP`, `INPUT_PULLDOWN`,
 `CHANGE`, `RISING`, `FALLING`, `A0`...`A5`, `LED_BUILTIN`) are never turned into
 numbers - they stay Arduino identifiers in the generated code. `Serial.begin(...)`
 and other C++ style calls also work unchanged.
+
+`pulseIn(pin, state[, timeout])` measures the duration of a `HIGH` or `LOW`
+pulse on a pin in microseconds; the optional `timeout` defaults to 1000000.
 
 ### Classes
 
