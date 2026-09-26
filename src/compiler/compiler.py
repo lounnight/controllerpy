@@ -49,6 +49,8 @@ class Compiler:
 
     # stages
     def parse(self, text: str) -> ast.Module:
+        if self.source is None:
+            self.source = SourceFile(self.filename, text)
         self.tree = parse_source(text, self.filename)
 
         return self.tree

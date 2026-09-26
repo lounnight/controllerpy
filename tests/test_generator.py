@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+
 from micropy.compiler.generator import CodeWriter, cpp_string_literal
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
@@ -223,6 +225,242 @@ def test_parentheses_are_only_added_where_needed(program):
     assert "value = a + b * c;" in cpp
     assert "grouped = (a + b) * c;" in cpp
     assert "nested = a - (b - c);" in cpp
+
+
+def test_parentheses_around_a_sub_expression_are_preserved(program):
+    """Regression: the grouping the source wrote survives the translation."""
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            c = 3
+            timing = (10 / 1) / 5
+            left = (a - b) - c
+            divided = (a / b) * c
+            remainder = (a % b) + c
+
+        def loop():
+            pass
+        """
+    )
+    assert "timing = (10 / 1) / 5;" in cpp
+    assert "left = (a - b) - c;" in cpp
+    assert "divided = (a / b) * c;" in cpp
+    assert "remainder = (a % b) + c;" in cpp
+
+
+def test_parentheses_are_not_invented_where_the_source_had_none(program):
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            c = 3
+            flat = a + b * c
+            chain = a - b - c
+            mixed = a * b + c
+
+        def loop():
+            pass
+        """
+    )
+    assert "flat = a + b * c;" in cpp
+    assert "chain = a - b - c;" in cpp
+    assert "mixed = a * b + c;" in cpp
+
+
+def test_operators_of_every_precedence_keep_their_grouping(program):
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            c = 3
+            grouped_add = (a + b) * c
+            grouped_sub = (a - b) * c
+            grouped_mul = (a * b) + c
+            grouped_div = (a / b) + c
+            grouped_mod = (a % b) * c
+
+        def loop():
+            pass
+        """
+    )
+    assert "grouped_add = (a + b) * c;" in cpp
+    assert "grouped_sub = (a - b) * c;" in cpp
+    assert "grouped_mul = (a * b) + c;" in cpp
+    assert "grouped_div = (a / b) + c;" in cpp
+    assert "grouped_mod = (a % b) * c;" in cpp
+
+
+def test_nested_expressions_keep_every_level_of_grouping(program):
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            c = 3
+            deep = ((a + b) * (c - a)) - b
+            shifted = (a + b) << c
+
+        def loop():
+            pass
+        """
+    )
+    assert "deep = ((a + b) * (c - a)) - b;" in cpp
+    assert "shifted = (a + b) << c;" in cpp
+
+
+def test_grouping_split_across_lines_still_means_the_same(program):
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            c = 3
+            value = (
+                a + b
+            ) * c
+
+        def loop():
+            pass
+        """
+    )
+    assert "value = (a + b) * c;" in cpp
+
+
+def test_chained_unary_signs_are_not_glued_together(program):
+    """Regression: ``- -a`` must not become the pre-decrement ``--a``."""
+    cpp = program(
+        """
+        def main():
+            a = 1
+            negated = - -a
+            doubled_sign = + +a
+
+        def loop():
+            pass
+        """
+    )
+    assert "negated = -(-a);" in cpp
+    assert "doubled_sign = +(+a);" in cpp
+    assert "--a" not in cpp
+    assert "++a" not in cpp
+
+
+def test_nested_comparisons_keep_their_grouping(program):
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            c = 3
+            relational = a < (b < c)
+            equality = a == (b == c)
+
+        def loop():
+            pass
+        """
+    )
+    assert "relational = a < (b < c);" in cpp
+    assert "equality = a == (b == c);" in cpp
+
+
+def test_conditional_expressions_keep_their_grouping(program):
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            c = 3
+            value = a if (b if c else c) else b
+
+        def loop():
+            pass
+        """
+    )
+    assert "value = (c ? b : c) ? a : b;" in cpp
+
+
+GROUPED_EXPRESSIONS = [
+    "(a + b) * (c - d)",
+    "((a + b) - (c * d)) / a",
+    "(a / (b + c)) % (d - a)",
+    "((a << b) + (c >> d)) & (a | b)",
+    "(a - (b - (c - d))) * (a + b)",
+    "a + b * c - d",
+    "(a * b) / (c % d)",
+]
+
+
+def test_generated_expressions_parse_to_the_same_tree(program):
+    """Every emitted expression groups its operands like the Python source did."""
+
+    body = "\n".join(f"    value_{index} = {expression}" for index, expression in enumerate(GROUPED_EXPRESSIONS))
+    cpp = program("a = 1\nb = 2\nc = 3\nd = 4\n\ndef main():\n" + body + "\n\ndef loop():\n    pass\n")
+    for index, expression in enumerate(GROUPED_EXPRESSIONS):
+        emitted = next(
+            line.split("=", 1)[1].strip().rstrip(";")
+            for line in cpp.splitlines()
+            if f" value_{index} = " in line
+        )
+        expected = ast.dump(ast.parse(expression, mode="eval").body)
+        assert ast.dump(ast.parse(emitted, mode="eval").body) == expected, expression
+
+
+def test_parentheses_are_preserved_in_every_value_position(program):
+    cpp = program(
+        """
+        a = 1
+        b = 2
+        values = [1, 2, 3]
+
+        def one(x):
+            return (x + 1)
+
+        def main():
+            assigned = (a + b)
+            summed = 0
+            summed += (a + b)
+            called = one((a + b))
+            indexed = values[(a)]
+            listed = [(a + b), 1]
+
+        def loop():
+            pass
+        """
+    )
+    assert "int assigned = (a + b);" in cpp
+    assert "summed += (a + b);" in cpp
+    assert "int called = one((a + b));" in cpp
+    assert "int indexed = values[(a)];" in cpp
+    assert "int listed[2] = {(a + b), 1};" in cpp
+    assert "return (x + 1);" in cpp
+
+
+def test_call_arguments_do_not_gain_parentheses(program):
+    """A call's own parentheses must not be mistaken for the argument's."""
+    cpp = program(
+        """
+        def one(x):
+            return x
+
+        def three():
+            return 3
+
+        def main():
+            value = one(1 + 2)
+            other = one(three())
+
+        def loop():
+            pass
+        """
+    )
+    assert "one(1 + 2)" in cpp
+    assert "one(three())" in cpp
+    assert "one((1 + 2))" not in cpp
+    assert "one((three()))" not in cpp
 
 
 def test_float_operators_use_the_math_helpers(program):
@@ -883,7 +1121,7 @@ def test_pulse_in_result_promotes_a_float_global_to_float(program):
     assert "float timing = 0.0;" in cpp
     assert "float distance = 0.0;" in cpp
     assert "timing = pulseIn(echo_pin, HIGH);" in cpp
-    assert "distance = timing * 0.34 / 2;" in cpp
+    assert "distance = (timing * 0.34) / 2;" in cpp
 
 
 def test_pulse_in_result_updates_an_int_global_from_a_function(program):

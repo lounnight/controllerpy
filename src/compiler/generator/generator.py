@@ -58,8 +58,6 @@ class CppGenerator:
         return self.expressions.name(identifier)
 
     def expr(self, node: ast.AST) -> str:
-        """Emit *node* as C++, parenthesising only where necessary."""
-
         return self.expressions.expr(node)
 
     # program layout

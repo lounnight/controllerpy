@@ -1,10 +1,11 @@
 """Printing expressions.
 
-An expression is rendered to C++ text, parenthesised only where C++ would
-otherwise parse it differently from the Python it came from.  That needs the
-binding power of every sub-expression, so each handler returns both the text
-and its precedence (:mod:`.operators`); ``expr`` is the plain-text entry point
-and ``_expr`` is the precedence-aware one.
+An expression is rendered to C++ text, parenthesised where C++ would otherwise
+parse it differently from the Python it came from - and wherever the source
+already grouped a sub-expression in parentheses, so the author's structure
+survives the translation.  That needs the binding power of every sub-expression,
+so each handler returns both the text and its precedence (:mod:`.operators`);
+``expr`` is the plain-text entry point and ``_expr`` is the precedence-aware one.
 
 Nothing here writes a line or looks at a statement: expressions form a closed
 group, which is why this module has no dependency on :mod:`.statements`.
@@ -13,7 +14,7 @@ group, which is why this module has no dependency on :mod:`.statements`.
 from __future__ import annotations
 
 import ast
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from ..validator import ARDUINO_OBJECTS, API_FUNCTIONS, BUILTIN_FUNCTIONS, UNKNOWN_TYPE, CompileContext
 from .formatting import cpp_string_literal
@@ -34,26 +35,67 @@ __all__ = ["ExpressionEmitter"]
 
 
 class ExpressionEmitter:
-    """Renders a validated expression as C++."""
-
     def __init__(self, context: CompileContext) -> None:
         self.ctx = context
 
     def name(self, identifier: str) -> str:
-        """C++ safe identifier for a Python name."""
-
         return self.ctx.cpp_name(identifier)
 
     def type_of(self, node: ast.AST) -> str:
-        """The C++ type stage 2 inferred for *node*."""
-
         return self.ctx.expression_types.get(id(node), UNKNOWN_TYPE)
+
+    # parentheses
+    def _source_line(self, lineno: Optional[int]) -> str:
+        source = self.ctx.source
+        if source is None or lineno is None:
+            return ""
+        get_line = getattr(source, "line", None)
+        line = get_line(lineno) if callable(get_line) else ""
+        if isinstance(line, str):
+            return line
+
+        return ""
+
+    def _parenthesized(self, node: ast.AST) -> bool:
+        lineno = getattr(node, "lineno", None)
+        start = getattr(node, "col_offset", None)
+        end = getattr(node, "end_col_offset", None)
+        if start is None or end is None or start < 1:
+            return False
+        if getattr(node, "end_lineno", lineno) != lineno:
+            return False
+        line = self._source_line(lineno)
+        if len(line) <= end:
+            return False
+        if line[start - 1] != "(" or line[end] != ")":
+            return False
+        
+        previous = line[start - 2] if start >= 2 else ""
+        if previous.isalnum() or previous == "_":
+            return False
+
+        return True
+
+    def _needs_parentheses(
+        self, node: ast.AST, child_precedence: int, precedence: int, *, allow_equal: bool
+    ) -> bool:
+        if self._parenthesized(node):
+            return True
+        if allow_equal:
+            return child_precedence < precedence
+
+        return child_precedence <= precedence
 
     # expressions
     def expr(self, node: ast.AST) -> str:
-        """Emit *node* as C++, parenthesising only where necessary."""
-
         return self._expr(node)[0]
+
+    def value(self, node: ast.AST) -> str:
+        text = self.expr(node)
+        if self._parenthesized(node):
+            return f"({text})"
+
+        return text
 
     def _expr(self, node: ast.AST) -> Tuple[str, int]:
         if isinstance(node, ast.Constant):
@@ -114,11 +156,11 @@ class ExpressionEmitter:
         return self.name(attribute)
 
     def _subscript(self, node: ast.Subscript) -> str:
-        return f"{self.expr(node.value)}[{self.expr(node.slice)}]"
+        return f"{self.expr(node.value)}[{self.value(node.slice)}]"
 
     def _call(self, node: ast.Call) -> str:
         func = node.func
-        args = ", ".join(self.expr(arg) for arg in node.args)
+        args = ", ".join(self.value(arg) for arg in node.args)
         if isinstance(func, ast.Name):
             name = func.id
             api = API_FUNCTIONS.get(name)
@@ -150,21 +192,21 @@ class ExpressionEmitter:
     def _binop(self, node: ast.BinOp) -> Tuple[str, int]:
         op = node.op
         if isinstance(op, ast.Pow):
-            left = self.expr(node.left)
-            right = self.expr(node.right)
+            left = self.value(node.left)
+            right = self.value(node.right)
             return (f"pow({left}, {right})", PRE_ATOM)
         if isinstance(op, (ast.FloorDiv, ast.Mod)) and self._is_float(node):
-            left = self.expr(node.left)
-            right = self.expr(node.right)
+            left = self.value(node.left)
+            right = self.value(node.right)
             if isinstance(op, ast.FloorDiv):
                 return (f"floor({left} / {right})", PRE_ATOM)
             return (f"fmod({left}, {right})", PRE_ATOM)
         token, precedence = BINOP_TOKENS[type(op)]
         left_text, left_precedence = self._expr(node.left)
         right_text, right_precedence = self._expr(node.right)
-        if left_precedence < precedence:
+        if self._needs_parentheses(node.left, left_precedence, precedence, allow_equal=True):
             left_text = f"({left_text})"
-        if right_precedence <= precedence:
+        if self._needs_parentheses(node.right, right_precedence, precedence, allow_equal=False):
             right_text = f"({right_text})"
 
         return (f"{left_text} {token} {right_text}", precedence)
@@ -177,7 +219,7 @@ class ExpressionEmitter:
         parts = []
         for value in node.values:
             text, value_precedence = self._expr(value)
-            if value_precedence < precedence:
+            if self._needs_parentheses(value, value_precedence, precedence, allow_equal=True):
                 text = f"({text})"
             parts.append(text)
 
@@ -185,7 +227,7 @@ class ExpressionEmitter:
 
     def _unary(self, node: ast.UnaryOp) -> Tuple[str, int]:
         text, precedence = self._expr(node.operand)
-        if precedence < PRE_UNARY:
+        if self._needs_parentheses(node.operand, precedence, PRE_UNARY, allow_equal=False):
             text = f"({text})"
         if isinstance(node.op, ast.Not):
             return (f"!{text}", PRE_UNARY)
@@ -198,31 +240,39 @@ class ExpressionEmitter:
 
     def _compare(self, node: ast.Compare) -> Tuple[str, int]:
         parts: List[str] = []
-        left_text, left_precedence = self._expr(node.left)
+        left_node = node.left
+        left_text, left_precedence = self._expr(left_node)
         lowest = PRE_REL
         for op, comparator in zip(node.ops, node.comparators):
             token = COMPARE_TOKENS[type(op)]
             precedence = PRE_REL if isinstance(op, (ast.Lt, ast.LtE, ast.Gt, ast.GtE)) else PRE_EQ
             lowest = min(lowest, precedence)
             right_text, right_precedence = self._expr(comparator)
-            left_side = left_text if left_precedence >= precedence else f"({left_text})"
-            right_side = right_text if right_precedence >= precedence else f"({right_text})"
+            left_side = left_text
+            if self._needs_parentheses(left_node, left_precedence, precedence, allow_equal=True):
+                left_side = f"({left_text})"
+            right_side = right_text
+            if self._needs_parentheses(comparator, right_precedence, precedence, allow_equal=False):
+                right_side = f"({right_text})"
             parts.append(f"{left_side} {token} {right_side}")
-            left_text, left_precedence = right_text, right_precedence
+            left_node, left_text, left_precedence = comparator, right_text, right_precedence
         if len(parts) == 1:
             return (parts[0], lowest)
 
-        # Python chains comparisons: a < b < c  ->  a < b && b < c
         return (" && ".join(parts), PRE_AND)
 
     def _ifexp(self, node: ast.IfExp) -> Tuple[str, int]:
-        return (
-            f"{self.expr(node.test)} ? {self.expr(node.body)} : {self.expr(node.orelse)}",
-            PRE_TERNARY,
-        )
+        parts: List[str] = []
+        for child, allow_equal in ((node.test, False), (node.body, True), (node.orelse, True)):
+            text, child_precedence = self._expr(child)
+            if self._needs_parentheses(child, child_precedence, PRE_TERNARY, allow_equal=allow_equal):
+                text = f"({text})"
+            parts.append(text)
+
+        return (f"{parts[0]} ? {parts[1]} : {parts[2]}", PRE_TERNARY)
 
     def _array_initializer(self, node: ast.AST) -> str:
-        return "{" + ", ".join(self.expr(element) for element in getattr(node, "elts")) + "}"
+        return "{" + ", ".join(self.value(element) for element in getattr(node, "elts")) + "}"
 
     def _is_float(self, node: ast.AST) -> bool:
         if isinstance(node, ast.BinOp):
