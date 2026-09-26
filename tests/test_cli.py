@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -68,6 +69,69 @@ def reported_tool_commands(monkeypatch):
 
     monkeypatch.setattr(toolchain, "report_tool_command", record)
     return seen
+
+
+# ------------------------------------------------------------------ the stub
+def _annotation(node: ast.expr) -> str:
+    return ast.unparse(node)
+
+
+def _signature(node: ast.FunctionDef) -> str:
+    """``(pin: int, mode: int) -> None`` - the parameters and return type only.
+
+    The body is left out on purpose: a docstring is documentation, not part of
+    the signature the type-checker sees.
+    """
+
+    args = list(node.args.args)
+    defaults = list(node.args.defaults)
+    undecided = len(args) - len(defaults)
+    parts = []
+    for index, arg in enumerate(args):
+        text = arg.arg
+        if arg.annotation is not None:
+            text += f": {_annotation(arg.annotation)}"
+        if index >= undecided:
+            default = ast.unparse(defaults[index - undecided])
+            text += f" = {default}" if arg.annotation is not None else f"={default}"
+        parts.append(text)
+    returns = f" -> {_annotation(node.returns)}" if node.returns is not None else ""
+
+    return f"({', '.join(parts)}){returns}"
+
+
+class StubAPI:
+    """The API a ``.pyi`` publishes, read by parsing it rather than by matching.
+
+    ``micropy init`` and ``micropy stubs`` copy the bundled stub verbatim, so
+    the contract these tests care about is the one that file *declares* - which
+    names exist, what they take, what they return.  Parsing states that
+    directly and leaves the layout free: adding a docstring to a function, or
+    reflowing the file, does not invalidate any assertion, and a name that only
+    appears in a comment no longer counts as present.
+    """
+
+    def __init__(self, source: str) -> None:
+        tree = ast.parse(source)
+        self.functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+        self.classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+        self.constants = {
+            node.target.id: _annotation(node.annotation)
+            for node in tree.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        }
+
+    def signature(self, name: str) -> str:
+        """The signature of a module-level function."""
+        return _signature(self.functions[name])
+
+    def methods(self, class_name: str) -> dict[str, str]:
+        """``{name: signature}`` for the methods of one declared class."""
+        return {
+            node.name: _signature(node)
+            for node in self.classes[class_name].body
+            if isinstance(node, ast.FunctionDef)
+        }
 
 
 # --------------------------------------------------------------------- build
@@ -358,9 +422,21 @@ def test_ports_verbose_echoes_the_command_once(fake_arduino_cli, recorded_calls,
 def test_stubs_writes_the_ide_stub(tmp_path, capsys):
     target = tmp_path / "micropy_api.pyi"
     assert main(["stubs", "-o", str(target)]) == EXIT_OK
-    content = target.read_text(encoding="utf-8")
-    assert "def pin_mode(pin: int, mode: int) -> None: ..." in content
-    assert "OUTPUT: int" in content
+
+    api = StubAPI(target.read_text(encoding="utf-8"))
+    # What the copied file declares, not how the declarations are laid out.
+    assert api.signature("pin_mode") == "(pin: int, mode: int) -> None"
+    assert api.signature("digital_read") == "(pin: int) -> int"
+    assert api.constants["OUTPUT"] == "int"
+    assert api.constants["A0"] == "int"
+    # Arduino's own classes come across with their methods intact.
+    assert api.methods("String")["__init__"] == "(self, value: Any = ...) -> None"
+    assert api.methods("String")["length"] == "(self) -> int"
+    assert api.methods("String")["charAt"] == "(self, index: int) -> str"
+    assert api.methods("Servo")["attach"] == "(self, pin: int) -> None"
+    assert api.methods("Servo")["detach"] == "(self) -> None"
+    assert api.methods("Servo")["write"] == "(self, angle: int) -> None"
+    assert api.methods("Servo")["read"] == "(self) -> int"
     assert "micropy_api import" in capsys.readouterr().out
 
 
@@ -520,8 +596,12 @@ def test_init_force_regenerates_the_ide_files(tmp_path, monkeypatch):
         (tmp_path / name).write_text("stale", encoding="utf-8")
     assert main(["init", "--force"]) == EXIT_OK
     stub = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
-    assert "def pin_mode(pin: int, mode: int) -> None: ..." in stub
     assert "stale" not in stub
+    # The whole file was replaced by the real API, so it parses and declares it.
+    api = StubAPI(stub)
+    assert api.signature("pin_mode") == "(pin: int, mode: int) -> None"
+    assert api.constants["OUTPUT"] == "int"
+    assert {"String", "Servo"} <= set(api.classes)
     assert "extraPaths" in (tmp_path / "pyrightconfig.json").read_text(encoding="utf-8")
     assert "from micropy_api import *" in (tmp_path / "main.py").read_text(encoding="utf-8")
 
@@ -529,7 +609,7 @@ def test_init_force_regenerates_the_ide_files(tmp_path, monkeypatch):
 def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == EXIT_OK
-    stub = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
+    api = StubAPI((tmp_path / "micropy_api.pyi").read_text(encoding="utf-8"))
     functions = [
         "pin_mode",
         "digital_write",
@@ -565,9 +645,9 @@ def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
         "LED_BUILTIN",
     ]
     for name in functions:
-        assert f"def {name}(" in stub, f"{name}() missing from the stub"
+        assert name in api.functions, f"{name}() missing from the stub"
     for name in constants:
-        assert f"{name}: int" in stub, f"{name} missing from the stub"
+        assert api.constants.get(name) == "int", f"{name} missing from the stub"
 
 
 def test_init_and_stubs_copy_the_same_source_stub(tmp_path, monkeypatch):
