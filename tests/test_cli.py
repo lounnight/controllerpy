@@ -1,0 +1,382 @@
+"""The command line interface: build, check, clean, compile, upload, ..."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from micropy import __version__
+from micropy.arduino import ENV_VAR, INSTALL_URL
+from micropy.cli import (
+    EXIT_COMPILE_ERROR,
+    EXIT_OK,
+    EXIT_TOOLCHAIN,
+    EXIT_USAGE,
+    main,
+)
+
+PROGRAM = 'LED = 13\n\ndef main():\n    pin_mode(LED, OUTPUT)\n\ndef loop():\n    digital_write(LED, HIGH)\n    delay(1000)\n'
+
+
+@pytest.fixture
+def source(tmp_path) -> Path:
+    path = tmp_path / "main.py"
+    path.write_text(PROGRAM, encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def no_arduino_cli(monkeypatch):
+    monkeypatch.delenv(ENV_VAR, raising=False)
+    monkeypatch.setenv("PATH", "")
+
+
+# --------------------------------------------------------------------- build
+def test_build_writes_build_main_ino(source, tmp_path, capsys):
+    assert main(["build", str(source), "-o", str(tmp_path / "build")]) == EXIT_OK
+    generated = tmp_path / "build" / "main.ino"
+    assert generated.exists()
+    assert "#include <Arduino.h>" not in generated.read_text(encoding="utf-8")
+    assert generated.read_text(encoding="utf-8").startswith("const int LED = 13;\n")
+    assert "const int LED = 13;" in generated.read_text(encoding="utf-8")
+    out = capsys.readouterr().out
+    assert "Generated" in out
+    assert "lines" in out
+
+
+def test_build_uses_the_default_output_directory(source, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["build", str(source)]) == EXIT_OK
+    assert (tmp_path / "build" / "main.ino").exists()
+
+
+def test_build_verbose_adds_a_summary(tmp_path, capsys):
+    helper = tmp_path / "prog.py"
+    helper.write_text(
+        "LED = 13\n\ndef toggle(pin):\n    digital_write(pin, HIGH)\n\ndef main():\n    toggle(LED)\n\ndef loop():\n    pass\n",
+        encoding="utf-8",
+    )
+    main(["build", str(helper), "-o", str(tmp_path / "build"), "-v"])
+    out = capsys.readouterr().out
+    assert "1 global" in out
+    assert "1 function" in out
+
+
+def test_build_reports_source_errors_without_a_traceback(tmp_path, capsys):
+    broken = tmp_path / "broken.py"
+    broken.write_text("def main():\n    pass\n", encoding="utf-8")
+    assert main(["build", str(broken), "-o", str(tmp_path / "build")]) == EXIT_COMPILE_ERROR
+    captured = capsys.readouterr()
+    assert "MicropyError:" in captured.err
+    assert "Missing required function: loop()" in captured.err
+    assert "Traceback" not in captured.err
+    assert not (tmp_path / "build").exists()
+
+
+def test_build_reports_syntax_errors_with_a_location(tmp_path, capsys):
+    broken = tmp_path / "broken.py"
+    broken.write_text("def main(:\n", encoding="utf-8")
+    assert main(["build", str(broken), "-o", str(tmp_path / "build")]) == EXIT_COMPILE_ERROR
+    assert "broken.py:1" in capsys.readouterr().err
+
+
+def test_build_missing_file(tmp_path, capsys):
+    assert main(["build", str(tmp_path / "nope.py")]) == EXIT_COMPILE_ERROR
+    assert "Source file not found" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------- check
+def test_check_succeeds_and_writes_nothing(source, tmp_path, capsys):
+    assert main(["check", str(source), "-o", str(tmp_path / "build")]) == EXIT_OK
+    assert "OK" in capsys.readouterr().out
+    assert not (tmp_path / "build").exists()
+
+
+def test_check_verbose_reports_a_summary(source, capsys):
+    main(["check", str(source), "-v"])
+    assert "1 global" in capsys.readouterr().out
+
+
+def test_check_never_needs_arduino_cli(source, no_arduino_cli, capsys):
+    assert main(["check", str(source)]) == EXIT_OK
+
+
+# --------------------------------------------------------------------- clean
+def test_clean_removes_the_output_directory(source, tmp_path, capsys):
+    build = tmp_path / "build"
+    main(["build", str(source), "-o", str(build)])
+    assert main(["clean", "-o", str(build)]) == EXIT_OK
+    assert not build.exists()
+    assert "Removed" in capsys.readouterr().out
+
+
+def test_clean_without_output_is_friendly(tmp_path, capsys):
+    assert main(["clean", "-o", str(tmp_path / "nothing")]) == EXIT_OK
+    assert "Nothing to clean" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------------- compile
+def test_compile_without_arduino_cli_explains_the_install(source, no_arduino_cli, capsys):
+    assert main(["compile", str(source), "--board", "uno"]) == EXIT_TOOLCHAIN
+    err = capsys.readouterr().err
+    assert "ArduinoCliError:" in err
+    assert INSTALL_URL in err
+
+
+def test_compile_invokes_arduino_cli(source, tmp_path, fake_arduino_cli, recorded_calls, capsys):
+    script = fake_arduino_cli()
+    build = tmp_path / "build"
+    code = main(["compile", str(source), "--board", "uno", "-o", str(build), "--arduino-cli", str(script)])
+    assert code == EXIT_OK
+    assert (build / "main.ino").exists()
+    assert (build / "main" / "main.ino").read_text(encoding="utf-8") == (build / "main.ino").read_text(encoding="utf-8")
+    calls = recorded_calls()
+    assert len(calls) == 1
+    assert calls[0].startswith("compile --fqbn arduino:avr:uno")
+    assert str(build / "main") in calls[0]
+    assert "Compiled" in capsys.readouterr().out
+
+
+def test_compile_reports_a_failing_toolchain(source, tmp_path, fake_arduino_cli, capsys):
+    script = fake_arduino_cli(exit_code=1, stdout="error: no such core")
+    code = main(["compile", str(source), "--arduino-cli", str(script)])
+    assert code == EXIT_TOOLCHAIN
+    assert "no such core" in capsys.readouterr().err
+
+
+def test_unknown_board_is_reported(source, capsys):
+    assert main(["compile", str(source), "--board", "teensy"]) == EXIT_COMPILE_ERROR
+    err = capsys.readouterr().err
+    assert "Unknown board: 'teensy'." in err
+    assert "arduino:avr:uno" in err
+
+
+def test_planned_board_is_reported(source, capsys):
+    assert main(["compile", str(source), "--board", "esp32"]) == EXIT_COMPILE_ERROR
+    assert "not supported yet" in capsys.readouterr().err
+
+
+# -------------------------------------------------------------------- upload
+def test_upload_needs_a_port(source, capsys):
+    assert main(["upload", str(source)]) == EXIT_USAGE
+    err = capsys.readouterr().err
+    assert "serial port" in err
+    assert "micropy ports" in err
+
+
+def test_upload_rejects_a_missing_port_path(source, tmp_path, fake_arduino_cli, capsys):
+    script = fake_arduino_cli()
+    code = main(["upload", str(source), "--port", str(tmp_path / "missing"), "--arduino-cli", str(script)])
+    assert code == EXIT_USAGE
+    assert "does not exist" in capsys.readouterr().err
+
+
+def test_upload_compiles_and_then_uploads(source, tmp_path, fake_arduino_cli, recorded_calls, capsys):
+    script = fake_arduino_cli()
+    port = tmp_path / "ttyUSB0"
+    port.write_text("", encoding="utf-8")
+    code = main(
+        [
+            "upload",
+            str(source),
+            "--board",
+            "arduino:avr:uno",
+            "--port",
+            str(port),
+            "-o",
+            str(tmp_path / "build"),
+            "--arduino-cli",
+            str(script),
+        ]
+    )
+    assert code == EXIT_OK
+    calls = recorded_calls()
+    assert len(calls) == 2
+    assert calls[0].startswith("compile --fqbn arduino:avr:uno")
+    assert calls[1].startswith(f"upload --fqbn arduino:avr:uno --port {port}")
+    out = capsys.readouterr().out
+    assert "Uploaded" in out
+    assert str(port) in out
+
+
+# ---------------------------------------------------------------- other cmds
+def test_boards_lists_supported_and_planned(capsys):
+    assert main(["boards"]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "arduino:avr:uno" in out
+    assert "(default)" in out
+    assert "esp32" in out
+
+
+def test_ports_uses_arduino_cli(fake_arduino_cli, recorded_calls, capsys):
+    script = fake_arduino_cli(stdout="Port Protocol Type")
+    assert main(["ports", "--arduino-cli", str(script)]) == EXIT_OK
+    assert recorded_calls() == ["board list"]
+    assert "Port Protocol Type" in capsys.readouterr().out
+
+
+def test_stubs_writes_the_ide_stub(tmp_path, capsys):
+    target = tmp_path / "micropy_api.pyi"
+    assert main(["stubs", "-o", str(target)]) == EXIT_OK
+    content = target.read_text(encoding="utf-8")
+    assert "def pin_mode(pin: int, mode: int) -> None: ..." in content
+    assert "OUTPUT: int" in content
+    assert "micropy_api import" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------- init
+def test_init_creates_the_ide_files(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == EXIT_OK
+    assert (tmp_path / "micropy_api.pyi").exists()
+    assert (tmp_path / "pyrightconfig.json").exists()
+    assert (tmp_path / "main.py").exists()
+    out = capsys.readouterr().out
+    assert "Initialized Micropy project." in out
+    assert "  ✓ micropy_api.pyi" in out
+    assert "  ✓ pyrightconfig.json" in out
+    assert "Your IDE is now configured for Micropy." in out
+
+
+def test_init_writes_a_pyright_config_that_discovers_the_stub(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == EXIT_OK
+    config = json.loads((tmp_path / "pyrightconfig.json").read_text(encoding="utf-8"))
+    assert "*.py" in config["include"]
+    assert "." in config["extraPaths"]
+    shim = (tmp_path / "main.py").read_text(encoding="utf-8")
+    assert "from micropy_api import *" in shim
+
+
+def test_init_does_not_overwrite_without_force(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    mine = tmp_path / "micropy_api.pyi"
+    mine.write_text("# my own stub\n", encoding="utf-8")
+    assert main(["init"]) == EXIT_USAGE
+    captured = capsys.readouterr()
+    assert "micropy_api.pyi already exists." in captured.err
+    assert "Use --force to overwrite it." in captured.err
+    assert mine.read_text(encoding="utf-8") == "# my own stub\n"
+    assert not (tmp_path / "pyrightconfig.json").exists()
+
+
+def test_init_force_regenerates_the_ide_files(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == EXIT_OK
+    for name in ("micropy_api.pyi", "pyrightconfig.json", "main.py"):
+        (tmp_path / name).write_text("stale", encoding="utf-8")
+    assert main(["init", "--force"]) == EXIT_OK
+    stub = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
+    assert "def pin_mode(pin: int, mode: int) -> None: ..." in stub
+    assert "stale" not in stub
+    assert "extraPaths" in (tmp_path / "pyrightconfig.json").read_text(encoding="utf-8")
+    assert "from micropy_api import *" in (tmp_path / "main.py").read_text(encoding="utf-8")
+
+
+def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == EXIT_OK
+    stub = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
+    functions = [
+        "pin_mode",
+        "digital_write",
+        "digital_read",
+        "analog_read",
+        "analog_write",
+        "delay",
+        "delay_microseconds",
+        "millis",
+        "micros",
+        "serial_begin",
+        "serial_print",
+        "serial_println",
+        "serial_available",
+        "serial_read",
+    ]
+    constants = [
+        "HIGH",
+        "LOW",
+        "INPUT",
+        "OUTPUT",
+        "INPUT_PULLUP",
+        "INPUT_PULLDOWN",
+        "CHANGE",
+        "RISING",
+        "FALLING",
+        "A0",
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "LED_BUILTIN",
+    ]
+    for name in functions:
+        assert f"def {name}(" in stub, f"{name}() missing from the stub"
+    for name in constants:
+        assert f"{name}: int" in stub, f"{name} missing from the stub"
+
+
+def test_init_and_stubs_copy_the_same_source_stub(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == EXIT_OK
+    assert main(["stubs", "-o", "copy.pyi"]) == EXIT_OK
+    from_init = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
+    from_stubs = (tmp_path / "copy.pyi").read_text(encoding="utf-8")
+    assert from_init == from_stubs
+
+
+def test_init_does_not_overwrite_an_existing_main_py(source, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    original = source.read_text(encoding="utf-8")
+    assert main(["init"]) == EXIT_USAGE
+    captured = capsys.readouterr()
+    assert "main.py already exists." in captured.err
+    assert "Use --force to overwrite it." in captured.err
+    assert source.read_text(encoding="utf-8") == original
+
+
+def test_build_is_unaffected_by_the_ide_files(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == EXIT_OK
+    (tmp_path / "main.py").write_text(PROGRAM, encoding="utf-8")
+    assert main(["build", "main.py"]) == EXIT_OK
+    ino = (tmp_path / "build" / "main.ino").read_text(encoding="utf-8")
+    assert ino.startswith("const int LED = 13;\n")
+    assert "micropy_api" not in ino
+
+
+def test_check_does_not_require_the_api_import(source, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert "micropy_api" not in source.read_text(encoding="utf-8")
+    assert main(["check", "main.py"]) == EXIT_OK
+    assert "main.py: OK" in capsys.readouterr().out
+
+
+def test_check_and_build_accept_the_init_generated_header(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == EXIT_OK
+    header = (tmp_path / "main.py").read_text(encoding="utf-8")
+    assert "from builtins import *" in header
+    assert "from micropy_api import *" in header
+    (tmp_path / "main.py").write_text(header + "\n" + PROGRAM, encoding="utf-8")
+    assert main(["check", "main.py"]) == EXIT_OK
+    assert main(["build", "main.py"]) == EXIT_OK
+    ino = (tmp_path / "build" / "main.ino").read_text(encoding="utf-8")
+    assert "const int LED = 13;" in ino
+    assert "micropy_api" not in ino
+
+
+def test_version_flag(capsys):
+    with pytest.raises(SystemExit) as caught:
+        main(["--version"])
+    assert caught.value.code == 0
+    assert __version__ in capsys.readouterr().out
+
+
+def test_a_command_is_required(capsys):
+    with pytest.raises(SystemExit) as caught:
+        main([])
+    assert caught.value.code == EXIT_USAGE

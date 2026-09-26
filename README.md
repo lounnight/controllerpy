@@ -1,0 +1,466 @@
+# micropy
+
+Write Arduino programs in a Python-like subset. `micropy` parses real Python
+source with Python's `ast` module, validates it, and transpiles it into native
+Arduino C++ that you can read, review and commit. When you are happy with the
+result, it can compile and upload the sketch with `arduino-cli`.
+
+> `micropy` was previously called **ArduinoPy** - the compiler, the API and the
+> generated code are the same, only the name changed.
+
+```python
+# main.py
+LED = 13
+BUTTON = 7
+
+def main():
+    pin_mode(LED, OUTPUT)
+    pin_mode(BUTTON, INPUT_PULLUP)
+
+def loop():
+    if digital_read(BUTTON) == LOW:
+        digital_write(LED, HIGH)
+    else:
+        digital_write(LED, LOW)
+
+    delay(50)
+```
+
+```bash
+micropy build main.py
+```
+
+```cpp
+// build/main.ino
+const int LED = 13;
+const int BUTTON = 7;
+
+void setup() {
+    pinMode(LED, OUTPUT);
+    pinMode(BUTTON, INPUT_PULLUP);
+}
+
+void loop() {
+    if (digitalRead(BUTTON) == LOW) {
+        digitalWrite(LED, HIGH);
+    } else {
+        digitalWrite(LED, LOW);
+    }
+
+    delay(50);
+}
+```
+
+## Installation
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'   # .[dev] adds pytest
+```
+
+Only the standard library is required at runtime. `arduino-cli` is optional -
+it is needed for `micropy compile` and `micropy upload` only.
+
+If you prefer not to install anything, run the CLI from a checkout:
+
+```bash
+PYTHONPATH=src python3 -m micropy build main.py
+```
+
+## Quick start
+
+```bash
+micropy init                                  # IDE setup: micropy_api.pyi + pyrightconfig.json
+micropy build main.py                          # build/main.ino
+micropy check main.py                          # parse + validate only
+micropy clean                                  # remove generated files
+micropy compile main.py --board arduino:avr:uno
+micropy upload  main.py --board uno --port /dev/ttyACM0
+micropy ports                                  # which boards are attached?
+micropy boards                                 # which boards are supported?
+micropy stubs                                  # micropy_api.pyi only (legacy; prefer init)
+```
+
+### Command reference
+
+| Command | What it does | Needs `arduino-cli` |
+| --- | --- | --- |
+| `init [-f/--force]` | writes `micropy_api.pyi`, `pyrightconfig.json` and `main.py` (see *IDE and type-checker support*) | no |
+| `build SOURCE` | transpiles to `<output>/<name>.ino` (default `build/`) | no |
+| `check SOURCE` | parses and validates, writes nothing | no |
+| `clean` | deletes `--output-dir` | no |
+| `compile SOURCE --board B` | `build` + writes the sketch folder + `arduino-cli compile` | yes |
+| `upload SOURCE --board B --port P` | `compile` + `arduino-cli upload` | yes |
+| `ports` | `arduino-cli board list` | yes |
+| `boards` | lists supported (and planned) boards | no |
+| `stubs` | writes `micropy_api.pyi` only (legacy; prefer `init`) | no |
+
+Common options: `-o/--output-dir`, `-b/--board` (FQBN or alias such as `uno`),
+`-v/--verbose`, `--arduino-cli PATH`, `--port`, `--debug`, `--version`.
+
+Exit codes: `0` success, `1` source/compiler error, `2` usage error (for
+example a missing `--port`), `3` arduino-cli missing or failed, `70` internal
+error.
+
+### Where files are written
+
+```text
+build/
+├── main.ino          # exactly the generated C++ (micropy build)
+├── main/
+│   └── main.ino      # the same code as an Arduino sketch
+└── arduino/
+    └── main/         # arduino-cli build artifacts
+```
+
+## Language reference
+
+`micropy` accepts a deliberately small, explicit subset of Python. Anything
+outside it is reported as an error with a file, line and column - the compiler
+never silently skips code.
+
+### Entry points
+
+`main()` becomes `setup()` and `loop()` becomes `loop()`. Both are required and
+must be defined exactly once, at the top level, without parameters:
+
+```text
+main.py:12:1
+
+Missing required function: loop()
+```
+
+### Statements
+
+`Assign`, `AnnAssign`, `AugAssign` (`+= -= *= /= //= %= &= |= ^= <<= >>= **=`),
+`Expr`, `If` / `elif` / `else`, `While`, `For ... in range(...)`, `FunctionDef`,
+`Return`, `Break`, `Continue`, `Pass`, `ClassDef`.
+
+### Expressions and operators
+
+| Python | C++ | Notes |
+| --- | --- | --- |
+| `a + b`, `a - b`, `a * b`, `a / b`, `a % b` | same | `/` on integers follows C semantics |
+| `a // b` | `a / b` for ints, `floor(a / b)` for floats | |
+| `a % b` (floats) | `fmod(a, b)` | |
+| `a ** b` | `pow(a, b)` | assigning to an int truncates |
+| `a & b`, `a \| b`, `a ^ b`, `a << b`, `a >> b` | same | integers only |
+| `== != < > <= >=` | same | `0 < x < 10` becomes `0 < x && x < 10` |
+| `and`, `or`, `not` | `&&`, `\|\|`, `!` | parentheses added only where needed |
+| `a if cond else b` | `cond ? a : b` | |
+| `-a`, `+a`, `~a` | same | |
+| `len(array)`, `array[i]` | `sizeof(...)` / `array[i]` | arrays from list literals |
+| `abs`, `min`, `max`, `constrain`, `pow`, `sqrt`, `floor`, `ceil`, `round` | same | Arduino/C++ math helpers |
+
+Comparisons may be chained, but a chained comparison may not contain a
+function call (it would be evaluated twice).
+
+### Variables and types
+
+```python
+LED = 13                  # const int LED = 13;
+counter = 0               # int counter = 0;
+enabled = True            # const bool enabled = true;
+name = "hello"            # const char* name = "hello";
+label: str = "hello"      # String label = "hello";
+temperature = 25.5        # const float temperature = 25.5;
+reading: int              # int reading;
+values = [1, 2, 3]        # const int values[3] = {1, 2, 3};
+status = Led(13)          # Led status(13);
+```
+
+* Types are inferred from the assigned values; `int`/`float`/`bool`/`String`
+  are supported, as are your own classes and Arduino library objects.
+* A top-level variable becomes `const` when it is assigned exactly once and the
+  value is not a call and not an object.
+* A variable assigned in one place as `int` and in another as `float` is
+  promoted to `float`; incompatible types are an error.
+* Parameters are typed from annotations first, then from the argument types seen
+  at every call site; unknown parameters default to `int`.
+* Return types come from the `-> T` annotation when present, otherwise from the
+  `return` statements (resolved through a small fixpoint pass, so helpers may be
+  defined after the code that calls them).
+* Top-level names behave like C++ globals: assigning to one inside a function
+  updates the global instead of creating a local (this is the one deliberate
+deviation from Python's scoping rules, and it is what makes Arduino counters
+work without a `global` statement).
+* C++ keywords and Arduino function names are renamed with a trailing
+  underscore (`explicit` -> `explicit_`, a local `delay` -> `delay_`), while
+  reusing the name of an Arduino constant or object (`Serial`, `HIGH`) is
+  rejected.
+
+### Arduino API
+
+| micropy | Arduino C++ |
+| --- | --- |
+| `pin_mode(pin, mode)` | `pinMode(pin, mode)` |
+| `digital_write(pin, value)` | `digitalWrite(pin, value)` |
+| `digital_read(pin)` | `digitalRead(pin)` |
+| `analog_read(pin)` | `analogRead(pin)` |
+| `analog_write(pin, value)` | `analogWrite(pin, value)` |
+| `delay(ms)` | `delay(ms)` |
+| `delay_microseconds(us)` | `delayMicroseconds(us)` |
+| `millis()` / `micros()` | `millis()` / `micros()` |
+| `serial_begin(baud)` | `Serial.begin(baud)` |
+| `serial_print(value)` / `serial_println(value)` | `Serial.print(...)` / `Serial.println(...)` |
+| `serial_available()` / `serial_read()` | `Serial.available()` / `Serial.read()` |
+| `serial_flush()` / `serial_end()` | `Serial.flush()` / `Serial.end()` |
+
+Constants (`HIGH`, `LOW`, `INPUT`, `OUTPUT`, `INPUT_PULLUP`, `INPUT_PULLDOWN`,
+`CHANGE`, `RISING`, `FALLING`, `A0`...`A5`, `LED_BUILTIN`) are never turned into
+numbers - they stay Arduino identifiers in the generated code. `Serial.begin(...)`
+and other C++ style calls also work unchanged.
+
+### Classes
+
+```python
+class Led:
+    def __init__(self, pin):
+        self.pin = pin
+        pin_mode(pin, OUTPUT)
+
+    def on(self):
+        digital_write(self.pin, HIGH)
+
+    def off(self):
+        digital_write(self.pin, LOW)
+
+status = Led(13)
+```
+
+```cpp
+class Led {
+public:
+    int pin;
+
+    Led(int pin) {
+        this->pin = pin;
+        pinMode(pin, OUTPUT);
+    }
+
+    void on() {
+        digitalWrite(this->pin, HIGH);
+    }
+
+    void off() {
+        digitalWrite(this->pin, LOW);
+    }
+};
+
+Led status(13);
+```
+
+Supported: classes without inheritance, `__init__`, methods, `self`
+attributes, method calls. Classes are emitted in dependency order, prototypes
+are generated for every function, and objects created inside a function are
+constructed where they are declared.
+
+### Arduino libraries
+
+```python
+from micropy import Servo
+
+servo = Servo()
+
+def main():
+    servo.attach(9)
+```
+
+becomes
+
+```cpp
+#include <Servo.h>
+
+Servo servo;
+
+void setup() {
+    servo.attach(9);
+}
+```
+
+`Servo`, `SoftwareSerial`, `LiquidCrystal`, `Wire`, `SPI` and `EEPROM` are
+known. Any other import is refused with a clear message (`Python library
+'requests' is not supported on Arduino.`), and the API of a library is passed
+through untranslated.
+
+### IDE and type-checker support
+
+```bash
+micropy init              # writes micropy_api.pyi, pyrightconfig.json, main.py
+micropy init --force      # regenerate them
+```
+
+`micropy init` is the recommended way to configure a project. It writes:
+
+* `micropy_api.pyi` - type stubs for `pin_mode`, `digital_write`, `OUTPUT`, ...
+  (the same file `micropy stubs` writes; IDE support only, it is never uploaded
+  to the board and `micropy` itself ignores it),
+* `pyrightconfig.json` - tells Pyright/Pylance where to find the stub,
+* `main.py` - re-exports the stub so the API is available in every
+  program **without** `from micropy_api import *`:
+
+```python
+LED = 13
+
+def main():
+    pin_mode(LED, OUTPUT)
+
+def loop():
+    digital_write(LED, HIGH)
+    delay(1000)
+```
+
+Older projects can keep using `micropy stubs` and the import line; both
+commands copy the same bundled stub, so new API names reach both.
+
+## Errors
+
+Normal problems never produce a traceback:
+
+```text
+MicropyError:
+  main.py:8:5
+
+  Unknown ArduinoPy function: foo()
+
+  Supported Arduino functions include:
+    analog_read()
+    analog_write()
+    delay()
+    digital_read()
+    ...
+```
+
+Other examples:
+
+```text
+MicropyError:
+  main.py:1:1
+
+  Unsupported Python feature: async function
+```
+
+```text
+ArduinoCliError:
+
+  arduino-cli was not found.
+
+  micropy needs the Arduino CLI to compile and upload sketches:
+    1. Install the Arduino CLI: https://arduino.github.io/arduino-cli/latest/installation/
+    2. Install the AVR core for the Uno: arduino-cli core install arduino:avr
+    ...
+```
+
+Use `--debug` to see the underlying traceback when a bug is suspected.
+
+## How it works
+
+```text
+main.py
+   |  parser.py     ast.parse()            Python grammar, never regex
+   v
+ AST
+   |  validator.py  subset + symbol tables file:line:col errors, no codegen
+   v
+ typed AST
+   |  generator.py   CodeWriter + precedence aware printer
+   v
+  build/main.ino
+   |  arduino.py     arduino-cli compile / upload (optional)
+   v
+ Arduino Uno
+```
+
+Every stage is a separate module and can be used on its own:
+
+```python
+from micropy import compile_source
+from micropy.compiler import Compiler
+
+result = compile_source(open("main.py").read(), filename="main.py")
+print(result.cpp)          # the generated C++
+print(result.summary())    # "2 globals, 1 function"
+
+compiler = Compiler(filename="main.py")
+tree = compiler.parse(source)          # stage 1
+context = compiler.validate(tree)      # stage 2
+cpp = compiler.generate(context)       # stage 3
+```
+
+## Project layout
+
+```text
+micropy/
+├── pyproject.toml
+├── main.py                     the acceptance example from the spec
+├── compiler.py                 deprecated single-file prototype (kept)
+├── examples/                   blink, button, loops, oop, serial
+├── src/micropy/
+│   ├── cli.py                  argparse CLI
+│   ├── boards.py               board (FQBN) registry
+│   ├── arduino.py              arduino-cli integration
+│   ├── errors.py               MicropyError / ArduinoCliError
+│   ├── compiler/
+│   │   ├── parser.py           source -> AST
+│   │   ├── validator.py        subset checks + symbol tables
+│   │   ├── context.py          API tables, types, scopes
+│   │   ├── libraries.py        Arduino library registry
+│   │   ├── generator.py        AST -> C++
+│   │   └── compiler.py         the three-stage facade
+│   └── runtime/api.pyi         IDE stub (never uploaded)
+└── tests/                      pytest suite + expected C++ snapshots
+```
+
+## Extending
+
+* **New board**: add a `Board` to `BOARDS` in `boards.py` (`nano`, `mega` and
+  `esp32` are already listed as planned). Nothing else changes - the generator
+  only ever emits portable Arduino code.
+* **New Arduino library**: add a `Library` to `libraries.py` with its header and
+  C++ type; `from micropy import YourLibrary` then works.
+* **New API function**: add an `ApiFunction` to `API_FUNCTIONS` in `context.py`
+  (Python name, C++ name, arity, return type) - validation, hints and code
+  generation all read that table.
+
+## Known limitations
+
+* Comments are not preserved: the AST does not contain them. Source blank lines
+  and paragraph structure are kept.
+* Bytecode-level Python semantics (`//` on negative integers, integer overflow,
+  float precision) follow C/C++ on the board.
+* `**` maps to `pow()` and truncates when the result is stored in an int.
+* Arrays come from list or tuple literals only; they cannot be resized, passed
+  to functions or returned.
+* Objects created at the top level are constructed before `setup()` runs, so for
+  libraries that need timers or interrupts, create the object inside `main()`.
+* A `for` loop variable lives in the loop: do not reuse it after the loop.
+* Locals whose first assignment sits inside an `if`/`while`/`for` block are
+  declared (uninitialised) at the top of the function, because C++ scopes are
+  narrower than Python's.
+* No `try`/`except`, `with`, `lambda`, f-strings, comprehensions, dicts, sets,
+  generators, threads or default arguments - see `UNSUPPORTED_FEATURES` in
+  `validator.py` for the exact list.
+
+## Development
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pytest          # 250 tests, including C++ snapshots
+.venv/bin/micropy build main.py && cat build/main.ino
+```
+
+Tests compare generated C++ verbatim against the reviewed snapshots in
+`tests/expected/`, so formatting changes are deliberate and reviewable. The
+`arduino-cli` integration is tested with a fake executable, so no board or tool
+chain is required.
+
+## Roadmap
+
+* More boards (Nano, Mega, ESP32) and a `--board` matrix in the test suite.
+* More Arduino libraries in the registry (and a `Servo`-style API map).
+* Structs/lists of objects, `str` helpers and a small `String` builder.
+
+## License
+
+MIT - see `LICENSE`.

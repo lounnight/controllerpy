@@ -1,0 +1,825 @@
+"""Stage 3: C++ generation for the supported subset."""
+
+from __future__ import annotations
+
+from micropy.compiler.generator import CodeWriter, cpp_string_literal
+
+SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
+
+
+# ----------------------------------------------------------------- variables
+def test_includes_and_entry_points(program):
+    cpp = program(SHELL)
+    assert not cpp.startswith("#include")
+    assert "void setup() {\n}\n" in cpp
+    assert "void loop() {\n}\n" in cpp
+
+
+def test_main_becomes_setup_and_loop_stays_loop(program):
+    cpp = program("def main():\n    pin_mode(13, OUTPUT)\n\ndef loop():\n    delay(1)\n")
+    assert "void setup() {\n    pinMode(13, OUTPUT);\n}" in cpp
+    assert "void loop() {\n    delay(1);\n}" in cpp
+    assert "int main(" not in cpp
+
+
+def test_global_constants_become_const_int(program):
+    cpp = program("LED = 13\n" + SHELL)
+    assert "const int LED = 13;" in cpp
+
+
+def test_globals_are_typed_by_their_value(program):
+    cpp = program(
+        "counter = 0\nenabled = True\nname = 'hi'\nlabel: str = 'x'\ntemperature = 25.5\n" + SHELL
+    )
+    assert "const int counter = 0;" in cpp
+    assert "const bool enabled = true;" in cpp
+    assert "const char* name = \"hi\";" in cpp
+    assert "String label = \"x\";" in cpp
+    assert "const float temperature = 25.5;" in cpp
+
+
+def test_global_that_is_written_inside_loop_is_not_const(program):
+    cpp = program(
+        """
+        counter = 0
+
+        def main():
+            pass
+
+        def loop():
+            counter = counter + 1
+            delay(counter)
+        """
+    )
+    assert "int counter = 0;" in cpp
+    assert "const int counter" not in cpp
+    assert "counter = counter + 1;" in cpp
+
+
+def test_annotated_global_without_value(program):
+    cpp = program("value: int\n" + SHELL)
+    assert "int value;" in cpp
+
+
+def test_local_variables_are_declared_where_they_are_first_assigned(program):
+    cpp = program("def main():\n    total = 0\n    total = total + 1\n\ndef loop():\n    pass\n")
+    assert "    int total = 0;\n" in cpp
+    assert "    total = total + 1;\n" in cpp
+    assert cpp.count("int total") == 1
+
+
+def test_local_first_assigned_inside_a_block_is_hoisted(program):
+    cpp = program(
+        """
+        def main():
+            if digital_read(2) == HIGH:
+                total = 1
+            digital_write(total, HIGH)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int total;\n" in cpp
+    assert "        total = 1;\n" in cpp
+    assert "int total = 1" not in cpp
+
+
+def test_parameters_and_return_types_are_inferred(program):
+    cpp = program(
+        """
+        def add(a, b):
+            return a + b
+
+        def average(a, b):
+            return (a + b) / 2.0
+
+        def blink(pin):
+            digital_write(pin, HIGH)
+
+        def main():
+            total = add(1, 2)
+            average(1, 2)
+            blink(13)
+
+        def loop():
+            pass
+        """
+    )
+    assert "int add(int a, int b);" in cpp
+    assert "float average(int a, int b);" in cpp
+    assert "void blink(int pin);" in cpp
+    assert "int add(int a, int b) {" in cpp
+    assert "float average(int a, int b) {" in cpp
+    assert "void blink(int pin) {" in cpp
+
+
+def test_explicit_return_annotation_wins(program):
+    cpp = program("def half(x) -> float:\n    return x / 2\n" + SHELL)
+    assert "float half(int x) {" in cpp
+
+
+def test_return_type_can_be_resolved_through_another_function(program):
+    cpp = program(
+        """
+        def inner():
+            return 1.5
+
+        def outer():
+            return inner()
+
+        def main():
+            value = outer()
+
+        def loop():
+            pass
+        """
+    )
+    assert "float inner() {" in cpp
+    assert "float outer() {" in cpp
+    assert "float value = outer();" in cpp
+
+
+def test_boolean_function_return_type(program):
+    cpp = program("def ready():\n    return digital_read(2) == HIGH\n" + SHELL)
+    assert "bool ready() {" in cpp
+
+
+# ---------------------------------------------------------------- expressions
+def test_operators_are_mapped_to_cpp(program):
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            total = a + b
+            diff = a - b
+            product = a * b
+            quotient = a / b
+            whole = a // b
+            rest = a % b
+            high = a << 2
+            low = a >> 1
+            masked = a & b
+            flipped = a ^ b
+            merged = a | b
+
+        def loop():
+            pass
+        """
+    )
+    assert "total = a + b;" in cpp
+    assert "diff = a - b;" in cpp
+    assert "product = a * b;" in cpp
+    assert "quotient = a / b;" in cpp
+    assert "whole = a / b;" in cpp
+    assert "rest = a % b;" in cpp
+    assert "high = a << 2;" in cpp
+    assert "low = a >> 1;" in cpp
+    assert "masked = a & b;" in cpp
+    assert "flipped = a ^ b;" in cpp
+    assert "merged = a | b;" in cpp
+
+
+def test_boolean_operators_become_cpp_operators(program):
+    cpp = program(
+        """
+        def main():
+            x = 1
+            y = 0
+            if x and y:
+                digital_write(13, HIGH)
+            if x or not y:
+                digital_write(13, LOW)
+
+        def loop():
+            pass
+        """
+    )
+    assert "if (x && y) {" in cpp
+    assert "if (x || !y) {" in cpp
+
+
+def test_not_of_a_comparison_is_parenthesised(program):
+    cpp = program("def main():\n    if not (1 < 2):\n        pass\n\ndef loop():\n    pass\n")
+    assert "if (!(1 < 2)) {" in cpp
+
+
+def test_parentheses_are_only_added_where_needed(program):
+    cpp = program(
+        """
+        def main():
+            a = 1
+            b = 2
+            c = 3
+            value = a + b * c
+            grouped = (a + b) * c
+            nested = a - (b - c)
+
+        def loop():
+            pass
+        """
+    )
+    assert "value = a + b * c;" in cpp
+    assert "grouped = (a + b) * c;" in cpp
+    assert "nested = a - (b - c);" in cpp
+
+
+def test_float_operators_use_the_math_helpers(program):
+    cpp = program(
+        """
+        def main():
+            whole = 7.5 // 2.0
+            rest = 7.5 % 2.0
+            power = 2 ** 3
+            scaled = 2.0 ** 3
+
+        def loop():
+            pass
+        """
+    )
+    assert "whole = floor(7.5 / 2.0);" in cpp
+    assert "rest = fmod(7.5, 2.0);" in cpp
+    assert "power = pow(2, 3);" in cpp
+    assert "scaled = pow(2.0, 3);" in cpp
+
+
+def test_comparisons_and_chained_comparisons(program):
+    cpp = program(
+        """
+        def main():
+            x = 5
+            if x != 3 and x <= 10 and x >= 0:
+                pass
+            ok = 0 < x < 10
+
+        def loop():
+            pass
+        """
+    )
+    assert "if (x != 3 && x <= 10 && x >= 0) {" in cpp
+    assert "ok = 0 < x && x < 10;" in cpp
+
+
+def test_conditional_expression_becomes_a_ternary(program):
+    cpp = program("def main():\n    pick = 1 if digital_read(2) == HIGH else 2\n\ndef loop():\n    pass\n")
+    assert "pick = digitalRead(2) == HIGH ? 1 : 2;" in cpp
+
+
+def test_unary_minus_and_invert(program):
+    cpp = program("def main():\n    a = -1\n    b = ~a\n\ndef loop():\n    pass\n")
+    assert "a = -1;" in cpp
+    assert "b = ~a;" in cpp
+
+
+def test_string_literals_are_escaped(program):
+    cpp = program('def main():\n    serial_println("say \\\"hi\\\"\\n")\n\ndef loop():\n    pass\n')
+    assert 'Serial.println("say \\\"hi\\\"\\n");' in cpp
+
+
+def test_cpp_string_literal_helper():
+    assert cpp_string_literal("plain") == '"plain"'
+    assert cpp_string_literal('a"b') == '"a\\"b"'
+    assert cpp_string_literal("tab\tend") == '"tab\\tend"'
+    assert cpp_string_literal("bell\x07") == '"bell\\007"'
+
+
+# ----------------------------------------------------------------- statements
+def test_if_elif_else_chain(program):
+    cpp = program(
+        """
+        def main():
+            value = 5
+            if value > 80:
+                digital_write(9, HIGH)
+            elif value > 60:
+                digital_write(10, HIGH)
+            else:
+                digital_write(11, LOW)
+
+        def loop():
+            pass
+        """
+    )
+    assert (
+        "    if (value > 80) {\n"
+        "        digitalWrite(9, HIGH);\n"
+        "    } else if (value > 60) {\n"
+        "        digitalWrite(10, HIGH);\n"
+        "    } else {\n"
+        "        digitalWrite(11, LOW);\n"
+        "    }" in cpp
+    )
+
+
+def test_nested_if_blocks(program):
+    cpp = program(
+        """
+        def main():
+            pass
+
+        def loop():
+            sensor = digital_read(2)
+            temperature = analog_read(A0)
+            if sensor:
+                if temperature > 50:
+                    digital_write(9, HIGH)
+                else:
+                    digital_write(10, HIGH)
+            else:
+                digital_write(11, LOW)
+        """
+    )
+    assert cpp.count("if (sensor) {") == 1
+    assert "        if (temperature > 50) {" in cpp
+    assert "        } else {" in cpp
+
+
+def test_while_loop_with_break_and_continue(program):
+    cpp = program(
+        """
+        def main():
+            pass
+
+        def loop():
+            while True:
+                reading = digital_read(2)
+                if reading == LOW:
+                    continue
+                break
+        """
+    )
+    assert "while (true) {" in cpp
+    assert "continue;" in cpp
+    assert "break;" in cpp
+
+
+def test_range_variants(program):
+    cpp = program(
+        """
+        def main():
+            for i in range(10):
+                digital_write(i, HIGH)
+            for j in range(2, 10):
+                digital_write(j, HIGH)
+            for k in range(0, 10, 2):
+                digital_write(k, HIGH)
+            for m in range(10, 0, -1):
+                digital_write(m, HIGH)
+
+        def loop():
+            pass
+        """
+    )
+    assert "for (int i = 0; i < 10; i++) {" in cpp
+    assert "for (int j = 2; j < 10; j++) {" in cpp
+    assert "for (int k = 0; k < 10; k += 2) {" in cpp
+    assert "for (int m = 10; m > 0; m--) {" in cpp
+
+
+def test_augmented_assignments(program):
+    cpp = program(
+        """
+        counter = 0
+
+        def main():
+            counter = 1
+            counter += 2
+            counter -= 1
+            counter *= 3
+            counter //= 2
+            counter %= 5
+            counter &= 7
+            counter |= 8
+            counter ^= 1
+            counter <<= 1
+            counter >>= 1
+
+        def loop():
+            pass
+        """
+    )
+    for operator in ("+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="):
+        assert f"counter {operator} " in cpp
+
+
+def test_multi_assignment_and_tuple_targets(program):
+    cpp = program("def main():\n    a, b = 1, 2\n\ndef loop():\n    pass\n")
+    assert "int a = 1;" in cpp
+    assert "int b = 2;" in cpp
+
+
+def test_tuple_value_can_feed_several_variables(program):
+    cpp = program("def main():\n    a, b = 4, 5\n    c = a\n\ndef loop():\n    pass\n")
+    assert "int a = 4;" in cpp
+    assert "int b = 5;" in cpp
+    assert "int c = a;" in cpp
+
+
+def test_arrays_len_and_index_writes(program):
+    cpp = program(
+        """
+        readings = [0, 0, 0]
+
+        def main():
+            size = len(readings)
+            readings[1] = 42
+            first = readings[0]
+
+        def loop():
+            pass
+        """
+    )
+    assert "int readings[3] = {0, 0, 0};" in cpp
+    assert "size = (sizeof(readings) / sizeof(readings[0]));" in cpp
+    assert "readings[1] = 42;" in cpp
+    assert "first = readings[0];" in cpp
+
+
+def test_string_annotation_uses_the_arduino_string_class(program):
+    cpp = program("def main():\n    label: str = 'hi'\n\ndef loop():\n    pass\n")
+    assert 'String label = "hi";' in cpp
+
+
+def test_pass_produces_an_empty_block(program):
+    cpp = program("def main():\n    pass\n\ndef loop():\n    pass\n")
+    assert "void setup() {\n}" in cpp
+    assert "void loop() {\n}" in cpp
+
+
+def test_docstrings_are_ignored(program):
+    cpp = program(
+        '''
+        """Module docstring."""
+
+        def helper():
+            """Does nothing."""
+            pass
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        '''
+    )
+    assert "docstring" not in cpp.lower()
+    assert "void helper() {\n}" in cpp
+
+
+def test_blank_lines_from_the_source_are_kept(program):
+    cpp = program(
+        """
+        def main():
+            digital_write(13, HIGH)
+
+            delay(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    digitalWrite(13, HIGH);\n\n    delay(100);\n" in cpp
+
+
+def test_cpp_keywords_are_escaped_in_identifiers(program):
+    cpp = program("def main():\n    explicit = 1\n    class_name = explicit\n\ndef loop():\n    pass\n")
+    assert "int explicit_ = 1;" in cpp
+    assert "int class_name = explicit_;" in cpp
+
+
+def test_arduino_names_are_escaped_when_used_as_variables(program):
+    cpp = program("def main():\n    delay = 5\n    delay = delay + 1\n\ndef loop():\n    pass\n")
+    assert "int delay_ = 5;" in cpp
+    assert "delay_ = delay_ + 1;" in cpp
+
+
+def test_arduino_core_names_cannot_be_used_as_variables(error):
+    error(
+        "def main():\n    Serial = 5\n\ndef loop():\n    pass\n",
+        message="'Serial' is used by the Arduino core and cannot be a variable name.",
+    )
+    error(
+        "def blink(HIGH):\n    pass\n\ndef main():\n    pass\n\ndef loop():\n    pass\n",
+        message="'HIGH' is used by the Arduino core and cannot be a variable name.",
+    )
+
+
+def test_swap_uses_temporaries(program):
+    cpp = program("def main():\n    a = 1\n    b = 2\n    a, b = b, a\n\ndef loop():\n    pass\n")
+    assert "int micropy_tmp0 = b;" in cpp
+    assert "int micropy_tmp1 = a;" in cpp
+    assert "a = micropy_tmp0;" in cpp
+    assert "b = micropy_tmp1;" in cpp
+
+
+def test_floor_division_and_power_augmented_assignment(program):
+    cpp = program(
+        """
+        def main():
+            total = 7
+            total //= 2
+            total **= 2
+            ratio = 7.5
+            ratio //= 2.0
+
+        def loop():
+            pass
+        """
+    )
+    assert "total /= 2;" in cpp
+    assert "total = pow(total, 2);" in cpp
+    assert "ratio = floor(ratio / 2.0);" in cpp
+
+
+# -------------------------------------------------------------------- serial
+def test_serial_helpers_map_to_the_serial_object(program):
+    cpp = program(
+        """
+        def main():
+            serial_begin(9600)
+            serial_print('a')
+            serial_println('b')
+            serial_println()
+            serial_println(12)
+
+        def loop():
+            available = serial_available()
+            data = serial_read()
+            serial_flush()
+            serial_end()
+        """
+    )
+    assert "Serial.begin(9600);" in cpp
+    assert 'Serial.print("a");' in cpp
+    assert 'Serial.println("b");' in cpp
+    assert "Serial.println();" in cpp
+    assert "Serial.println(12);" in cpp
+    assert "Serial.available();" in cpp
+    assert "Serial.read();" in cpp
+    assert "Serial.flush();" in cpp
+    assert "Serial.end();" in cpp
+
+
+def test_serial_calls_can_be_written_in_cpp_style(program):
+    cpp = program("def main():\n    Serial.begin(9600)\n\ndef loop():\n    pass\n")
+    assert "Serial.begin(9600);" in cpp
+
+
+# ---------------------------------------------------------------- libraries
+def test_library_import_adds_the_include_and_the_object(program):
+    cpp = program(
+        """
+        from micropy import Servo
+
+        servo = Servo()
+
+        def main():
+            servo.attach(9)
+
+        def loop():
+            servo.write(90)
+        """
+    )
+    assert "#include <Servo.h>" in cpp
+    assert "Servo servo;" in cpp
+    assert "servo.attach(9);" in cpp
+    assert "servo.write(90);" in cpp
+
+
+def test_library_object_inside_a_function(program):
+    cpp = program(
+        """
+        from micropy import SoftwareSerial
+
+        def main():
+            link = SoftwareSerial(10, 11)
+            link.begin(9600)
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include <SoftwareSerial.h>" in cpp
+    assert "SoftwareSerial link(10, 11);" in cpp
+
+
+# ------------------------------------------------------------------- classes
+def test_class_becomes_a_cpp_class(program):
+    cpp = program(
+        """
+        class Led:
+            def __init__(self, pin):
+                self.pin = pin
+                pin_mode(pin, OUTPUT)
+
+            def on(self):
+                digital_write(self.pin, HIGH)
+
+            def off(self):
+                digital_write(self.pin, LOW)
+
+        def main():
+            led = Led(13)
+            led.on()
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.count("class Led {") == 1
+    assert "public:" in cpp
+    assert "    int pin;" in cpp
+    assert "    Led(int pin) {" in cpp
+    assert "        this->pin = pin;" in cpp
+    assert "    void on() {" in cpp
+    assert "        digitalWrite(this->pin, HIGH);" in cpp
+    assert "Led led(13);" in cpp
+    assert "led.on();" in cpp
+
+
+def test_methods_can_call_methods(program):
+    cpp = program(
+        """
+        class Motor:
+            def __init__(self, pin):
+                self.pin = pin
+
+            def start(self):
+                self.enable(True)
+
+            def enable(self, state):
+                digital_write(self.pin, state)
+
+        def main():
+            motor = Motor(5)
+            motor.start()
+
+        def loop():
+            pass
+        """
+    )
+    assert "this->enable(true);" in cpp
+    assert "void enable(bool state) {" in cpp
+
+
+def test_class_field_types_are_promoted(program):
+    cpp = program(
+        """
+        class Sensor:
+            def __init__(self, pin):
+                self.pin = pin
+                self.average = 0
+
+            def sample(self):
+                self.average = analog_read(self.pin) / 2.0
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "    float average;" in cpp
+
+
+def test_classes_are_ordered_by_their_dependencies(program):
+    cpp = program(
+        """
+        class Inner:
+            def __init__(self, value):
+                self.value = value
+
+        class Outer:
+            def __init__(self):
+                self.inner = Inner(1)
+
+        def main():
+            outer = Outer()
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.index("class Inner {") < cpp.index("class Outer {")
+
+
+def test_global_object_is_declared_after_its_class(program):
+    cpp = program(
+        """
+        class Led:
+            def __init__(self, pin):
+                self.pin = pin
+
+        status = Led(13)
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.index("class Led {") < cpp.index("Led status(13);")
+
+
+def test_prototypes_are_emitted_before_use(program):
+    cpp = program("def helper():\n    digital_write(13, HIGH)\n" + SHELL)
+    assert "void helper();" in cpp
+    assert cpp.index("void helper();") < cpp.index("void setup()")
+
+
+# ---------------------------------------------------------------- formatting
+def test_generated_code_is_consistently_formatted(program, result):
+    cpp = program(
+        """
+        LED = 13
+
+        def main():
+            pin_mode(LED, OUTPUT)
+
+        def loop():
+            digital_write(LED, HIGH)
+            delay(1000)
+        """
+    )
+    assert "\t" not in cpp
+    assert cpp.endswith("}\n")
+    assert "\n\n\n" not in cpp
+    for line in cpp.splitlines():
+        assert line == line.rstrip()
+
+def test_generation_is_deterministic(result):
+    source = "LED = 13\n\ndef main():\n    pin_mode(LED, OUTPUT)\n\ndef loop():\n    digital_write(LED, HIGH)\n"
+    first = result(source).cpp
+    second = result(source).cpp
+    assert first == second
+
+
+def test_code_writer_indents_and_strips_trailing_blank_lines():
+    writer = CodeWriter()
+    writer.line("void setup() {")
+    writer.indent()
+    writer.line("pinMode(13, OUTPUT);")
+    writer.dedent()
+    writer.line("}")
+    writer.blank()
+    assert writer.text() == "void setup() {\n    pinMode(13, OUTPUT);\n}\n"
+
+
+# -------------------------------------------------------------- Arduino API
+def test_arduino_api_functions_map_to_cpp(program):
+    cpp = program(
+        """
+        def main():
+            pin_mode(13, OUTPUT)
+            digital_write(13, HIGH)
+            digital_read(13)
+            analog_read(A0)
+            analog_write(9, 128)
+            delay(1)
+            delay_microseconds(10)
+            millis()
+            micros()
+
+        def loop():
+            reading = analog_read(A1)
+            analog_write(10, reading / 4)
+        """
+    )
+    assert "pinMode(13, OUTPUT);" in cpp
+    assert "digitalWrite(13, HIGH);" in cpp
+    assert "digitalRead(13);" in cpp
+    assert "analogRead(A0);" in cpp
+    assert "analogWrite(9, 128);" in cpp
+    assert "    delay(1);" in cpp
+    assert "delayMicroseconds(10);" in cpp
+    assert "millis();" in cpp
+    assert "micros();" in cpp
+    assert "analogRead(A1);" in cpp
+    assert "analogWrite(10, reading / 4);" in cpp
+
+
+def test_arduino_constants_are_never_replaced_by_numbers(program):
+    cpp = program(
+        """
+        def main():
+            pin_mode(2, INPUT_PULLUP)
+            pin_mode(3, INPUT_PULLDOWN)
+            digital_write(4, LOW)
+            digital_write(5, HIGH)
+            attach = CHANGE
+            rising = RISING
+            falling = FALLING
+            builtin = LED_BUILTIN
+
+        def loop():
+            pass
+        """
+    )
+    for constant in ("INPUT_PULLUP", "INPUT_PULLDOWN", "LOW", "HIGH", "CHANGE", "RISING", "FALLING", "LED_BUILTIN"):
+        assert constant in cpp
+    assert "pinMode(2, INPUT_PULLUP);" in cpp
+    assert "digitalWrite(4, LOW);" in cpp
+    assert "digitalWrite(5, HIGH);" in cpp
