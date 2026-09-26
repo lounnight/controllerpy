@@ -361,7 +361,7 @@ main.py
    |  parser.py     ast.parse()            Python grammar, never regex
    v
  AST
-   |  validator.py  subset + symbol tables file:line:col errors, no codegen
+   |  validator/    subset + symbol tables  file:line:col errors, no codegen
    v
  typed AST
    |  generator.py   CodeWriter + precedence aware printer
@@ -402,11 +402,18 @@ micropy/
 │   ├── arduino.py              arduino-cli integration
 │   ├── errors.py               MicropyError / ArduinoCliError
 │   ├── compiler/
-│   │   ├── parser.py           source -> AST
-│   │   ├── validator.py        subset checks + symbol tables
-│   │   ├── context.py          API tables, types, scopes
-│   │   ├── libraries.py        Arduino library registry
-│   │   ├── generator.py        AST -> C++
+│   │   ├── parser.py           stage 1: source -> AST
+│   │   ├── validator/          stage 2: subset checks + symbol tables
+│   │   │   ├── api.py            Arduino API tables
+│   │   │   ├── types.py          the C++ type system
+│   │   │   ├── naming.py         C++ keywords, reserved names
+│   │   │   ├── libraries.py      Arduino library registry
+│   │   │   ├── symbols.py        VarInfo/FunctionInfo/ClassInfo/Scope
+│   │   │   ├── context.py        CompileContext
+│   │   │   ├── ast_utils.py      AST helpers + unsupported-feature policy
+│   │   │   ├── collector.py      collect definitions, finalise types
+│   │   │   └── analyzer.py       body analysis, type inference
+│   │   ├── generator.py        stage 3: AST -> C++
 │   │   └── compiler.py         the three-stage facade
 │   └── runtime/api.pyi         IDE stub (never uploaded)
 └── tests/                      pytest suite + expected C++ snapshots
@@ -416,16 +423,25 @@ micropy/
 import name (`[tool.setuptools.package-dir] micropy = "src"`), so the sources
 stay flat and there is no nested `micropy/` directory to import through.
 
+Stage 2 is the only stage that knows what micropy is, so it carries the most
+detail. Its modules build on each other in one direction -
+`api`/`types`/`naming`/`libraries` describe the target, `symbols` records what
+was found, `context` holds the result for stage 3, and `validator` + `analyzer`
+are the two phases that fill it in - which is why none of them import each
+other cyclically. `micropy.compiler` re-exports `CompileContext` and `Validator`
+if you want to drive the stage yourself.
+
 ## Extending
 
 * **New board**: add a `Board` to `BOARDS` in `boards.py` (`nano`, `mega` and
   `esp32` are already listed as planned). Nothing else changes - the generator
   only ever emits portable Arduino code.
-* **New Arduino library**: add a `Library` to `libraries.py` with its header and
-  C++ type; `from micropy import YourLibrary` then works.
-* **New API function**: add an `ApiFunction` to `API_FUNCTIONS` in `context.py`
-  (Python name, C++ name, arity, return type) - validation, hints and code
-  generation all read that table.
+* **New Arduino library**: add a `Library` to `LIBRARIES` in
+  `compiler/validator/libraries.py` with its header and C++ type;
+  `from micropy import YourLibrary` then works.
+* **New API function**: add an `ApiFunction` to `API_FUNCTIONS` in
+  `compiler/validator/api.py` (Python name, C++ name, arity, return type) -
+  validation, hints and code generation all read that table.
 
 ## Known limitations
 
@@ -444,7 +460,7 @@ stay flat and there is no nested `micropy/` directory to import through.
   narrower than Python's.
 * No `try`/`except`, `with`, `lambda`, f-strings, comprehensions, dicts, sets,
   generators, threads or default arguments - see `UNSUPPORTED_FEATURES` in
-  `validator.py` for the exact list.
+  `compiler/validator/ast_utils.py` for the exact list.
 
 ## Development
 

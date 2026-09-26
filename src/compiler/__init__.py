@@ -1,10 +1,9 @@
 """The micropy compiler: parser, validator and C++ generator."""
 
 from .compiler import CompileResult, Compiler, compile_file, compile_source
-from .context import CompileContext
 from .generator import CodeWriter, CppGenerator
 from .parser import SourceFile, parse_file, parse_source
-from .validator import Validator
+from .validator import CompileContext, Validator
 
 __all__ = [
     "CompileContext",

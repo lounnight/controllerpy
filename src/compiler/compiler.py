@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from ..boards import Board, resolve_board
-from .context import CompileContext
 from .generator import CppGenerator
 from .parser import SourceFile, parse_file, parse_source
-from .validator import Validator
+from .validator import CompileContext, Validator
 __all__ = ["CompileResult", "Compiler", "compile_file", "compile_source"]
 
 @dataclass

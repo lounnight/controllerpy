@@ -16,19 +16,11 @@ from __future__ import annotations
 import ast
 from typing import Dict, List, Optional, Sequence, Set, Tuple, Union
 
-from .context import (
-    API_FUNCTIONS,
-    ARDUINO_CONSTANTS,
-    ARDUINO_OBJECTS,
-    BUILTIN_FUNCTIONS,
-    ClassInfo,
-    CompileContext,
-    FunctionInfo,
-    MethodInfo,
-    UNKNOWN_TYPE,
-    VarInfo,
-)
-from .validator import constant_int, is_docstring
+from .validator.api import API_FUNCTIONS, ARDUINO_CONSTANTS, ARDUINO_OBJECTS, BUILTIN_FUNCTIONS
+from .validator.ast_utils import constant_int, is_docstring
+from .validator.context import CompileContext
+from .validator.symbols import ClassInfo, FunctionInfo, MethodInfo, VarInfo
+from .validator.types import UNKNOWN_TYPE
 __all__ = ["CppGenerator", "CodeWriter", "cpp_string_literal"]
 
 OwnerInfo = Union[FunctionInfo, MethodInfo]
