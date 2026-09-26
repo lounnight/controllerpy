@@ -25,13 +25,44 @@ from .commands import (
     cmd_upload,
 )
 
-__all__ = ["DEFAULT_OUTPUT_DIR", "PROG", "build_parser"]
+__all__ = ["DEFAULT_OUTPUT_DIR", "DEBUG_HELP", "PROG", "build_parser"]
 
 PROG = "micropy"
 DEFAULT_OUTPUT_DIR = "build"
 
+DEBUG_HELP = "show internal tracebacks (for bug reports)"
+
 Handler = Callable[[argparse.Namespace], int]
 SubParsers = "argparse._SubParsersAction[argparse.ArgumentParser]"
+
+
+def _shared_options() -> argparse.ArgumentParser:
+    """The options every command accepts, wherever they are written.
+
+    ``--debug`` is a global flag, so it has to work after the command name as
+    well as before it (``micropy --debug build x.py`` *and* ``micropy build x.py
+    --debug``).  argparse's answer to that is a parent parser: the option is
+    defined once here and inherited by every subcommand, so it cannot drift
+    between them.
+
+    ``default=SUPPRESS`` is what makes inheriting it safe.  Since Python 3.13 a
+    subcommand's defaults are copied onto the parent's namespace, so an ordinary
+    ``store_true`` default here would write ``False`` over a ``--debug`` the
+    user already passed to ``micropy``.  Suppressing the default means this
+    parser only ever writes the flag when it is really there.
+    """
+
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument("--debug", action="store_true", default=argparse.SUPPRESS, help=DEBUG_HELP)
+
+    return shared
+
+
+def _add_command(subparsers: SubParsers, name: str, **kwargs) -> argparse.ArgumentParser:
+    """Register a subcommand.  Every command goes through here, so every
+    command accepts the shared options."""
+
+    return subparsers.add_parser(name, parents=[_shared_options()], **kwargs)
 
 
 def _add_source_command(
@@ -45,7 +76,7 @@ def _add_source_command(
     ) -> argparse.ArgumentParser:
     """Register a command that compiles ``source``: the common options, once."""
 
-    parser = subparsers.add_parser(name, help=help_text)
+    parser = _add_command(subparsers, name, help=help_text)
     parser.add_argument("source", help="micropy program, e.g. main.py")
     parser.add_argument(
         "-o", "--output-dir", default=DEFAULT_OUTPUT_DIR, help=f"output directory (default: {DEFAULT_OUTPUT_DIR})"
@@ -69,10 +100,11 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="'build' and 'check' work without arduino-cli.",
     )
     parser.add_argument("--version", action="version", version=f"{PROG} {__version__}")
-    parser.add_argument("--debug", action="store_true", help="show internal tracebacks (for bug reports)")
+    parser.add_argument("--debug", action="store_true", help=DEBUG_HELP)
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
 
-    init = subparsers.add_parser(
+    init = _add_command(
+        subparsers,
         "init",
         help="set up IDE support for this project (micropy_api.pyi + pyrightconfig.json)",
     )
@@ -90,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_source_command(
         subparsers, "check", help_text="parse and validate without generating files", handler=cmd_check, board=False
     )
-    clean = subparsers.add_parser("clean", help="remove generated files")
+    clean = _add_command(subparsers, "clean", help="remove generated files")
     clean.add_argument(
         "-o", "--output-dir", default=DEFAULT_OUTPUT_DIR, help=f"output directory (default: {DEFAULT_OUTPUT_DIR})"
     )
@@ -111,15 +143,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     upload.add_argument("-p", "--port", default=None, help="serial port, e.g. /dev/ttyACM0 or COM3")
 
-    ports = subparsers.add_parser("ports", help="list boards connected to this computer")
+    ports = _add_command(subparsers, "ports", help="list boards connected to this computer")
     ports.add_argument("--arduino-cli", metavar="PATH", default=None, help="path to the arduino-cli executable")
     ports.add_argument("-v", "--verbose", action="store_true")
     ports.set_defaults(handler=cmd_ports)
 
-    boards = subparsers.add_parser("boards", help="list supported boards")
+    boards = _add_command(subparsers, "boards", help="list supported boards")
     boards.set_defaults(handler=cmd_boards)
 
-    stubs = subparsers.add_parser(
+    stubs = _add_command(
+        subparsers,
         "stubs",
         help="write the IDE stub (api.pyi) into your project (legacy; prefer 'init')",
     )

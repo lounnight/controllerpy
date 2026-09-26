@@ -97,7 +97,10 @@ micropy stubs                                  # micropy_api.pyi only (legacy; p
 | `stubs` | writes `micropy_api.pyi` only (legacy; prefer `init`) | no |
 
 Common options: `-o/--output-dir`, `-b/--board` (FQBN or alias such as `uno`),
-`-v/--verbose`, `--arduino-cli PATH`, `--port`, `--debug`, `--version`.
+`-v/--verbose`, `--arduino-cli PATH`, `--port`, `--debug`, `--version`. `--debug`
+is a global option and may be written before or after the command, so
+`micropy --debug build main.py`, `micropy build --debug main.py` and
+`micropy build main.py --debug` are the same thing.
 
 Exit codes: `0` success, `1` source/compiler error, `2` usage error (for
 example a missing `--port`), `3` arduino-cli missing or failed, `70` internal

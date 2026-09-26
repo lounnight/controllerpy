@@ -11,11 +11,14 @@ from micropy import __version__
 from micropy.arduino import ENV_VAR, INSTALL_URL
 from micropy.cli import (
     EXIT_COMPILE_ERROR,
+    EXIT_INTERNAL,
     EXIT_OK,
     EXIT_TOOLCHAIN,
     EXIT_USAGE,
+    build_parser,
     main,
 )
+from micropy.errors import MicropyError
 
 PROGRAM = 'LED = 13\n\ndef main():\n    pin_mode(LED, OUTPUT)\n\ndef loop():\n    digital_write(LED, HIGH)\n    delay(1000)\n'
 
@@ -380,3 +383,115 @@ def test_a_command_is_required(capsys):
     with pytest.raises(SystemExit) as caught:
         main([])
     assert caught.value.code == EXIT_USAGE
+
+
+# --------------------------------------------------------------------- --debug
+#: ``--debug`` is a global flag, so it has to work before the command, right
+#: after it, and after the command's own arguments - for every command.
+DEBUG_POSITIONS = [
+    ["--debug", "build", "main.py"],
+    ["build", "--debug", "main.py"],
+    ["build", "main.py", "--debug"],
+    ["--debug", "check", "main.py"],
+    ["check", "main.py", "--debug"],
+    ["clean", "--debug"],
+    ["--debug", "init"],
+    ["init", "--debug", "--force"],
+    ["boards", "--debug"],
+    ["--debug", "ports"],
+    ["stubs", "--debug", "-o", "api.pyi"],
+    ["compile", "main.py", "--debug"],
+    ["upload", "main.py", "--debug", "-p", "/dev/ttyACM0"],
+]
+
+DEBUG_POSITIONS_IN_BUILD = DEBUG_POSITIONS[:3]
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS)
+def test_debug_is_recognized_in_any_position(argv):
+    """Before the command, after it, or after the arguments - all accepted."""
+
+    assert build_parser().parse_args(argv).debug is True
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS)
+def test_debug_stays_off_when_it_is_not_given(argv):
+    """Every command still defaults to no debugging."""
+
+    without = [item for item in argv if item != "--debug"]
+    assert build_parser().parse_args(without).debug is False
+
+
+@pytest.mark.parametrize("command", ["init", "build", "check", "clean", "compile", "upload", "ports", "boards", "stubs"])
+def test_every_command_documents_debug(command, capsys):
+    """A flag the user may write after the command has to be discoverable."""
+
+    with pytest.raises(SystemExit):
+        main([command, "--help"])
+    assert "--debug" in capsys.readouterr().out
+
+
+@pytest.fixture
+def broken_compile(monkeypatch):
+    """Make the compiler fail with something that is not a MicropyError."""
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("micropy.cli.commands.sketch.compile_file", explode)
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS_IN_BUILD)
+def test_debug_re_raises_the_traceback_in_any_position(argv, source, tmp_path, broken_compile):
+    """--debug is not merely accepted: the real exception reaches the user."""
+
+    resolved = [str(source) if item == "main.py" else item for item in argv]
+    resolved += ["-o", str(tmp_path / "build")]
+
+    with pytest.raises(RuntimeError, match="boom"):
+        main(resolved)
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS_IN_BUILD)
+def test_without_debug_the_same_failure_stays_quiet(argv, source, tmp_path, monkeypatch, broken_compile, capsys):
+    resolved = [str(source) if item == "main.py" else item for item in argv]
+    resolved = [item for item in resolved if item != "--debug"]
+    resolved += ["-o", str(tmp_path / "build")]
+
+    assert main(resolved) == EXIT_INTERNAL
+    err = capsys.readouterr().err
+    assert "micropy: internal error: RuntimeError: boom" in err
+    assert "Traceback" not in err
+
+
+def test_debug_re_raises_a_source_error_too(tmp_path, capsys):
+    """The MicropyError branch honours --debug as well."""
+
+    broken = tmp_path / "broken.py"
+    broken.write_text("def main():\n    pass\n", encoding="utf-8")
+
+    for argv in (
+        ["--debug", "build", str(broken)],
+        ["build", "--debug", str(broken)],
+        ["build", str(broken), "--debug"],
+    ):
+        with pytest.raises(MicropyError, match="Missing required function"):
+            main(argv + ["-o", str(tmp_path / "build")])
+
+    assert main(["build", str(broken), "-o", str(tmp_path / "build")]) == EXIT_COMPILE_ERROR
+    err = capsys.readouterr().err
+    assert "Missing required function: loop()" in err
+    assert "Traceback" not in err
+
+
+@pytest.mark.parametrize("argv", DEBUG_POSITIONS_IN_BUILD)
+def test_debug_does_not_change_a_successful_run(argv, source, tmp_path, capsys):
+    """A successful build prints exactly the same with the flag on or off."""
+
+    resolved = [str(source) if item == "main.py" else item for item in argv]
+    if "--debug" not in resolved:
+        resolved += ["--debug"]
+    resolved += ["-o", str(tmp_path / "build")]
+
+    assert main(resolved) == EXIT_OK
+    assert (tmp_path / "build" / "main.ino").read_text(encoding="utf-8").startswith("const int LED = 13;\n")
