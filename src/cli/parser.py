@@ -37,21 +37,7 @@ SubParsers = "argparse._SubParsersAction[argparse.ArgumentParser]"
 
 
 def _shared_options() -> argparse.ArgumentParser:
-    """The options every command accepts, wherever they are written.
-
-    ``--debug`` is a global flag, so it has to work after the command name as
-    well as before it (``micropy --debug build x.py`` *and* ``micropy build x.py
-    --debug``).  argparse's answer to that is a parent parser: the option is
-    defined once here and inherited by every subcommand, so it cannot drift
-    between them.
-
-    ``default=SUPPRESS`` is what makes inheriting it safe.  Since Python 3.13 a
-    subcommand's defaults are copied onto the parent's namespace, so an ordinary
-    ``store_true`` default here would write ``False`` over a ``--debug`` the
-    user already passed to ``micropy``.  Suppressing the default means this
-    parser only ever writes the flag when it is really there.
-    """
-
+    
     shared = argparse.ArgumentParser(add_help=False)
     shared.add_argument("--debug", action="store_true", default=argparse.SUPPRESS, help=DEBUG_HELP)
 
