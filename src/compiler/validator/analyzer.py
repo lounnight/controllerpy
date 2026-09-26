@@ -318,14 +318,14 @@ class BodyAnalyzer(ast.NodeVisitor):
         self._prepare_locals(method.node, scope, method.params, method)
         self._run_body(scope, method, info, None, method.node.body)
 
-    # --------------------------------------------------------- annotations
+    # annotations
     def _check_reserved_variable(self, node: ast.AST, name: str) -> None:
-        check_reserved_variable(self.ctx, node, name)
+        check_reserved_variable(self.ctx.error, node, name)
 
     def _annotation(self, node: ast.AST) -> str:
-        return resolve_annotation(self.ctx, node)
+        return resolve_annotation(node, self.ctx.classes, self.ctx.external_types, self.ctx.error)
 
-    # ------------------------------------------------------------ statements
+    # statements
     def visit_Assign(self, node: ast.Assign) -> None:
         targets = list(node.targets)
         if len(targets) == 1 and isinstance(targets[0], (ast.Tuple, ast.List)) and isinstance(

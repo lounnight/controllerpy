@@ -1,7 +1,23 @@
 from __future__ import annotations
-from typing import Iterable, Optional
 
-__all__ = ["MicropyError", "ArduinoCliError", "ArduinoPyError"]
+import ast
+from typing import Iterable, List, Optional, Protocol
+
+__all__ = ["MicropyError", "ArduinoCliError", "ArduinoPyError", "ErrorReporter"]
+
+
+class ErrorReporter(Protocol):
+    
+    def __call__(
+        self,
+        node: Optional[ast.AST],
+        message: str,
+        *,
+        hint: Optional[str] = None,
+        hint_lines: Optional[List[str]] = None,
+    ) -> None:
+        """Raise for *message*, anchored at *node*.  Never returns."""
+
 
 class MicropyError(Exception):
     title = "MicropyError"

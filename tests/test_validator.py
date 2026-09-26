@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import ast
+import importlib
+from pathlib import Path
+from typing import get_type_hints
+
 import pytest
+
+import micropy.compiler.validator as validator
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
 
 
-# --------------------------------------------------------------------- entry
+# entry
 def test_missing_main_is_reported(error):
     exc = error("def loop():\n    pass\n", message="Missing required function: main()")
     assert exc.line is None
@@ -844,3 +851,41 @@ def test_class_typed_global_is_a_known_type(result):
         """
     )
     assert compiled.context.globals["led"].cpp_type == "Led"
+
+
+# ----------------------------------------------------------------- layering
+#: The modules that describe the target.  :mod:`context` imports both of
+#: them, so anything they import back closes a cycle in the module graph.
+TARGET_DESCRIPTION_MODULES = ("naming", "types")
+
+
+def _imported_siblings(path: Path) -> set:
+    """The sibling modules *path* imports, TYPE_CHECKING blocks included."""
+
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module:
+            found.add(node.module)
+    return found
+
+
+@pytest.mark.parametrize("module", TARGET_DESCRIPTION_MODULES)
+def test_target_modules_do_not_depend_on_the_context(module):
+    package = Path(validator.__file__).parent
+
+    assert "context" not in _imported_siblings(package / f"{module}.py")
+
+
+#: The one function of each module that has to report a problem.
+REPORTING_FUNCTIONS = {"naming": "check_reserved_variable", "types": "resolve_annotation"}
+
+
+@pytest.mark.parametrize("module", sorted(REPORTING_FUNCTIONS))
+def test_target_modules_report_through_the_reporter_not_the_context(module):
+
+    imported = importlib.import_module(f"micropy.compiler.validator.{module}")
+    function = getattr(imported, REPORTING_FUNCTIONS[module])
+    annotations = {getattr(hint, "__name__", str(hint)) for hint in get_type_hints(function).values()}
+
+    assert "ErrorReporter" in annotations
+    assert "CompileContext" not in annotations

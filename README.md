@@ -459,7 +459,10 @@ detail. Its modules build on each other in one direction -
 `api`/`types`/`naming`/`libraries` describe the target, `symbols` records what
 was found, `context` holds the result for stage 3, and `validator` + `analyzer`
 are the two phases that fill it in - which is why none of them import each
-other cyclically. `micropy.compiler` re-exports `CompileContext` and `Validator`
+other cyclically. The first group never imports `context` at all: it reports
+problems through the `ErrorReporter` it is handed (`CompileContext.error`), and
+`types` is passed the class names it has to resolve rather than the context to
+read them from. `micropy.compiler` re-exports `CompileContext` and `Validator`
 if you want to drive the stage yourself.
 
 Stage 3 is just as one-directional: `formatting` and `operators` hold the C++

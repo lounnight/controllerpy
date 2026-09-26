@@ -14,7 +14,10 @@ name.  It is split so each module has one job:
   definitions and finalises types, the second analyses bodies.
 
 Nothing below depends on the generator, and the modules build on each other in
-that order, so the package has no cycles.
+that order, so the package has no cycles.  The first group stays a leaf of the
+package: it reports a problem through the :class:`~micropy.errors.ErrorReporter`
+it is handed (``CompileContext.error``), and :mod:`types` is told which class
+names exist instead of being given the context to read them from.
 """
 
 from .analyzer import BodyAnalyzer
