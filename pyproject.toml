@@ -9,7 +9,7 @@ description = "Write Arduino programs in a Python-like subset and transpile them
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "micropy contributors" }]
+authors = [{ name = "lounnight" }]
 keywords = ["arduino", "transpiler", "compiler", "python", "embedded", "arduino-cli"]
 classifiers = [
     "Development Status :: 3 - Alpha",
