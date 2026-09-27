@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 
+import pytest
 from micropy.compiler.generator import CodeWriter, cpp_string_literal
+from micropy.compiler.validator.libraries import LIBRARIES, ApiClass, ApiMethod, Library
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
 
@@ -825,6 +827,24 @@ def test_library_import_adds_the_include_and_the_object(program):
     assert "servo.write(90);" in cpp
 
 
+def test_a_registered_constructor_produces_the_library_type(program):
+    cpp = program(
+        """
+        from micropy import Servo
+
+        servo = Servo()
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include <Servo.h>" in cpp
+    assert "Servo servo;" in cpp
+
+
 def test_library_object_inside_a_function(program):
     cpp = program(
         """
@@ -840,6 +860,388 @@ def test_library_object_inside_a_function(program):
     )
     assert "#include <SoftwareSerial.h>" in cpp
     assert "SoftwareSerial link(10, 11);" in cpp
+    # Nothing is registered for SoftwareSerial's members, so they are emitted as written.
+    assert "link.begin(9600);" in cpp
+
+
+def test_a_library_type_without_registered_methods_is_declared_and_used_as_written(program):
+    cpp = program(
+        """
+        from micropy import LiquidCrystal
+
+        lcd = LiquidCrystal(12, 13, 14, 15, 16)
+
+        def main():
+            lcd.begin(16, 2)
+            lcd.print("hi")
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include <LiquidCrystal.h>" in cpp
+    assert "LiquidCrystal lcd(12, 13, 14, 15, 16);" in cpp
+    assert "lcd.begin(16, 2);" in cpp
+    assert 'lcd.print("hi");' in cpp
+
+
+def test_the_core_libraries_are_called_without_being_included(program):
+    # Wire, SPI and EEPROM are provided by the Arduino core, so the calls go out
+    # as written and the generated program includes no header for them.
+    cpp = program(
+        """
+        def main():
+            Wire.begin()
+            SPI.transfer(176)
+            EEPROM.write(0, 255)
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include" not in cpp
+    assert "Wire.begin();" in cpp
+    assert "SPI.transfer(176);" in cpp
+    assert "EEPROM.write(0, 255);" in cpp
+
+
+def test_a_registered_method_keeps_its_cpp_name(program):
+    cpp = program(
+        """
+        from micropy import Servo
+
+        servo = Servo()
+
+        def main():
+            servo.attach(9)
+            servo.detach()
+
+        def loop():
+            servo.write(90)
+            value = servo.read()
+        """
+    )
+    assert "servo.attach(9);" in cpp
+    assert "servo.detach();" in cpp
+    assert "servo.write(90);" in cpp
+    assert "int value = servo.read();" in cpp
+
+
+@pytest.fixture
+def renaming_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It carries one method the C++ side spells differently and one it does not, so
+    a test can tell a mapped name from a name that was simply left alone.
+    """
+
+    library = Library(
+        "Gadget",
+        "Gadget.h",
+        "Gadget",
+        classes=(
+            ApiClass(
+                "Gadget",
+                "Gadget",
+                methods=(
+                    ApiMethod("set_speed", 1, 1, "int", "setSpeed"),
+                    ApiMethod("stop", 0, 0),
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "Gadget", library)
+
+    return library
+
+
+def test_a_renamed_method_is_emitted_under_its_cpp_name(program, renaming_library):
+    cpp = program(
+        """
+        from micropy import Gadget
+
+        gadget = Gadget()
+
+        def main():
+            value = gadget.set_speed(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "int value = gadget.setSpeed(100);" in cpp
+
+
+def test_a_method_without_a_cpp_name_keeps_its_python_name(program, renaming_library):
+    cpp = program(
+        """
+        from micropy import Gadget
+
+        gadget = Gadget()
+
+        def main():
+            gadget.stop()
+
+        def loop():
+            pass
+        """
+    )
+    assert "gadget.stop();" in cpp
+
+
+def test_a_renamed_method_is_emitted_on_a_library_object_from_inside_a_function(program, renaming_library):
+    cpp = program(
+        """
+        from micropy import Gadget
+
+        def main():
+            gadget = Gadget()
+            gadget.set_speed(1)
+
+        def loop():
+            pass
+        """
+    )
+    assert "gadget.setSpeed(1);" in cpp
+
+
+def test_a_renamed_library_method_does_not_rename_a_user_class_method(program):
+    cpp = program(
+        """
+        class Motor:
+            def __init__(self, pin):
+                self.pin = pin
+
+            def set_speed(self, value):
+                return value
+
+        motor = Motor(9)
+
+        def main():
+            value = motor.set_speed(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "int value = motor.set_speed(100);" in cpp
+
+
+@pytest.fixture
+def library_with_its_own_cpp_type(monkeypatch) -> Library:
+    """A library whose class type and whose own ``cpp_type`` disagree.
+
+    ``Library.cpp_type`` is the older, coarser description of the library and
+    ``ApiClass.cpp_type`` is what the class is actually called.  A test can only
+    see which of the two a constructor uses if the two differ.
+    """
+
+    library = Library(
+        "Widget",
+        "Widget.h",
+        "widget_handle",
+        classes=(ApiClass("Widget", "Widget", methods=(ApiMethod("set_speed", 1, 1, "int", "setSpeed"),)),),
+    )
+    monkeypatch.setitem(LIBRARIES, "Widget", library)
+
+    return library
+
+
+def test_a_constructor_produces_the_type_its_class_declares(program, library_with_its_own_cpp_type):
+    cpp = program(
+        """
+        from micropy import Widget
+
+        w = Widget()
+
+        def main():
+            value = w.set_speed(1)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Widget w;" in cpp
+    assert "widget_handle w;" not in cpp
+    # The type the constructor produced is the one the method system reads.
+    assert "int value = w.setSpeed(1);" in cpp
+
+
+@pytest.fixture
+def class_only_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It declares no type of its own, only a class, so nothing but the class
+    registration can make the type available.
+    """
+
+    library = Library(
+        "Doohickey",
+        "Doohickey.h",
+        None,
+        classes=(
+            ApiClass(
+                "Doohickey",
+                "Doohickey",
+                methods=(ApiMethod("set_speed", 1, 1, "int", "setSpeed", params=("int",)),),
+                ctor_min_args=0,
+                ctor_max_args=0,
+            ),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "Doohickey", library)
+
+    return library
+
+
+def test_a_class_only_library_provides_the_type_its_class_declares(program, class_only_library):
+    cpp = program(
+        """
+        from micropy import Doohickey
+
+        thing = Doohickey()
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include <Doohickey.h>" in cpp
+    assert "Doohickey thing;" in cpp
+
+
+def test_a_class_only_library_class_uses_its_registered_methods(program, class_only_library):
+    cpp = program(
+        """
+        from micropy import Doohickey
+
+        thing = Doohickey()
+
+        def main():
+            value = thing.set_speed(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "int value = thing.setSpeed(100);" in cpp
+
+
+def test_a_declared_argument_type_does_not_change_the_cpp_it_generates(program, class_only_library):
+    # The class registers set_speed() as taking an int; describing the type is
+    # a check, so the call is generated exactly as it was without it.
+    cpp = program(
+        """
+        from micropy import Doohickey
+
+        thing = Doohickey()
+
+        def main():
+            thing.set_speed(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "thing.setSpeed(100);" in cpp
+
+
+@pytest.fixture
+def multi_class_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It declares no type of its own and contributes two classes, each with its
+    own constructor, so neither class can be standing in for the other.
+    """
+
+    library = Library(
+        "SomeLib",
+        "SomeLib.h",
+        None,
+        classes=(
+            ApiClass("Foo", "Foo", methods=(ApiMethod("ping", 0, 0),)),
+            ApiClass("Bar", "Bar", ctor_min_args=1, ctor_max_args=1),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "SomeLib", library)
+
+    return library
+
+
+def test_one_library_can_provide_several_classes(program, multi_class_library):
+    cpp = program(
+        """
+        from micropy import Foo
+        from micropy import Bar
+
+        foo = Foo()
+        bar = Bar(3)
+
+        def main():
+            foo.ping()
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.count("#include <SomeLib.h>") == 1
+    assert "Foo foo;" in cpp
+    assert "Bar bar(3);" in cpp
+    assert "foo.ping();" in cpp
+
+
+@pytest.fixture
+def oddly_named_class_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    Its class is imported under one name and is a different type in C++, which
+    is what tells the two apart.
+    """
+
+    library = Library(
+        "OddLib",
+        "OddLib.h",
+        None,
+        classes=(ApiClass("Odd", "odd_t", methods=(ApiMethod("ping", 0, 0),)),),
+    )
+    monkeypatch.setitem(LIBRARIES, "OddLib", library)
+
+    return library
+
+
+def test_a_class_is_found_by_the_type_it_produces(program, oddly_named_class_library):
+    cpp = program(
+        """
+        from micropy import Odd
+
+        odd = Odd()
+
+        def main():
+            odd.ping()
+
+        def loop():
+            pass
+        """
+    )
+    assert "odd_t odd;" in cpp
+    assert "odd.ping();" in cpp
+
+
+def test_an_arduino_builtin_object_member_keeps_its_name(program):
+    cpp = program(
+        """
+        def main():
+            Serial.begin(9600)
+            Serial.println("hi")
+
+        def loop():
+            pass
+        """
+    )
+    assert "Serial.begin(9600);" in cpp
+    assert 'Serial.println("hi");' in cpp
 
 
 # ------------------------------------------------------------------- classes

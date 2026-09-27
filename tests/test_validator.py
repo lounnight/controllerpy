@@ -10,9 +10,14 @@ from typing import get_type_hints
 import pytest
 
 import micropy.compiler.validator as validator
+from micropy.compiler.validator.libraries import LIBRARIES, ApiClass, ApiMethod, Library, library_for, supported_libraries
 from micropy.compiler.validator.types import SCALAR_TYPES
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
+
+#: The registry is the source of truth for which libraries can be imported, so
+#: the import tests are written against whatever it lists.
+LIBRARY_NAMES = sorted(supported_libraries())
 
 
 # entry
@@ -357,6 +362,455 @@ def test_ide_only_module_imports_are_skipped(result):
 def test_named_import_from_the_api_stub_is_accepted(result):
     compiled = result("from micropy_api import HIGH, pin_mode\n" + SHELL)
     assert compiled.context.includes == []
+
+
+# ------------------------------------------------ imports through the registry
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_every_registered_library_is_importable_from_the_api_module(result, name):
+    library = library_for(name)
+    compiled = result(f"from micropy import {name}\n" + SHELL)
+
+    assert compiled.context.imported_libraries[name] is library
+    assert compiled.context.includes == [library.header]
+    assert f"#include <{library.header}>" in compiled.cpp
+    if library.cpp_type is None:
+        assert name not in compiled.context.external_types
+    else:
+        assert compiled.context.external_types[name] == library.cpp_type
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_every_registered_library_is_importable_by_its_own_name(result, name):
+    compiled = result(f"import {name}\n" + SHELL)
+
+    assert compiled.context.includes == [library_for(name).header]
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_every_registered_library_is_importable_from_its_own_module(result, name):
+    compiled = result(f"from {name} import {name}\n" + SHELL)
+
+    assert compiled.context.includes == [library_for(name).header]
+
+
+def test_a_library_module_name_is_metadata_and_not_an_import_alias(error):
+    # Servo records module="servo", but a library is only ever imported by the
+    # name the registry lists it under.
+    error(
+        "from servo import Servo\n" + SHELL,
+        message="Python library 'servo' is not supported on Arduino.",
+    )
+
+
+def test_importing_a_library_by_its_module_name_is_rejected(error):
+    error("import servo\n" + SHELL, message="Python library 'servo' is not supported on Arduino.")
+
+
+def test_a_name_that_is_not_a_registered_library_is_rejected(error):
+    error(
+        "from micropy import Widget\n" + SHELL,
+        message="'Widget' is not part of the micropy API.",
+    )
+
+
+def test_the_unsupported_library_hint_lists_the_registered_libraries(error):
+    exc = error("import requests\n" + SHELL, message="not supported on Arduino")
+
+    for name in LIBRARY_NAMES:
+        assert f"from micropy import {name}" in exc.hint_lines
+
+
+def test_the_unknown_api_name_hint_lists_the_registered_libraries(error):
+    exc = error("from micropy import Widget\n" + SHELL)
+
+    for name in LIBRARY_NAMES:
+        assert name in exc.hint_lines
+
+
+# --------------------------------------------- library class constructors
+def test_servo_is_created_with_the_registered_constructor(result):
+    compiled = result("from micropy import Servo\n\nservo = Servo()\n" + SHELL)
+
+    assert compiled.context.globals["servo"].cpp_type == "Servo"
+    assert "Servo servo;" in compiled.cpp
+
+
+def test_servo_constructor_rejects_an_argument(error):
+    error(
+        "from micropy import Servo\n\nservo = Servo(9)\n" + SHELL,
+        message="Servo() takes exactly 0 arguments but 1 was given.",
+        line=3,
+        col=9,
+    )
+
+
+def test_servo_constructor_rejects_several_arguments(error):
+    error(
+        "from micropy import Servo\n\nservo = Servo(9, 8)\n" + SHELL,
+        message="Servo() takes exactly 0 arguments but 2 were given.",
+    )
+
+
+def test_a_library_class_is_only_known_once_it_is_imported(error):
+    error("def main():\n    servo = Servo()\n\ndef loop():\n    pass\n", message="Unknown ArduinoPy function: Servo()")
+
+
+@pytest.fixture
+def registered_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It takes one or two constructor arguments, so the checks below cannot pass by
+    accident against a fixed arity, and the compiler knows nothing about it that
+    is not in the registry entry.
+    """
+
+    library = Library(
+        "Widget",
+        "Widget.h",
+        "Widget",
+        classes=(
+            ApiClass(
+                "Widget",
+                "Widget",
+                methods=(ApiMethod("spin", 0, 1, "int"),),
+                ctor_min_args=1,
+                ctor_max_args=2,
+            ),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "Widget", library)
+
+    return library
+
+
+def test_a_registered_constructor_takes_the_arguments_it_declares(result, registered_library):
+    compiled = result("from micropy import Widget\n\nw = Widget(3)\n" + SHELL)
+
+    assert compiled.context.globals["w"].cpp_type == "Widget"
+    assert "Widget w(3);" in compiled.cpp
+
+
+def test_a_registered_constructor_rejects_too_few_arguments(error, registered_library):
+    error(
+        "from micropy import Widget\n\nw = Widget()\n" + SHELL,
+        message="Widget() takes 1 to 2 arguments but 0 were given.",
+    )
+
+
+def test_a_registered_constructor_rejects_too_many_arguments(error, registered_library):
+    error(
+        "from micropy import Widget\n\nw = Widget(1, 2, 3)\n" + SHELL,
+        message="Widget() takes 1 to 2 arguments but 3 were given.",
+    )
+
+
+def test_a_library_without_class_metadata_keeps_its_constructor_unchecked(result):
+    # SoftwareSerial registers no class, so its type is used as it stands.
+    compiled = result("from micropy import SoftwareSerial\n\nlink = SoftwareSerial(10, 11, 12)\n" + SHELL)
+
+    assert compiled.context.globals["link"].cpp_type == "SoftwareSerial"
+    assert "SoftwareSerial link(10, 11, 12);" in compiled.cpp
+
+
+# ----------------------------------------------- library class methods
+SERVO = "from micropy import Servo\n\nservo = Servo()\n"
+WIDGET = "from micropy import Widget\n\nw = Widget(3)\n"
+
+
+def running(preamble: str, body: str) -> str:
+    """A module that declares *preamble* and calls *body* from main()."""
+
+    return preamble + f"\ndef main():\n    {body}\n\ndef loop():\n    pass\n"
+
+
+@pytest.mark.parametrize(
+    "call",
+    ["servo.attach(9)", "servo.attach(9, 8, 7)", "servo.detach()", "servo.write(90)"],
+)
+def test_a_library_method_takes_the_arguments_it_declares(result, call):
+    compiled = result(running(SERVO, call))
+
+    assert f"{call};" in compiled.cpp
+
+
+@pytest.mark.parametrize("call", ["servo.attach(9)", "servo.read()"])
+def test_a_library_method_returns_what_it_declares(result, call):
+    compiled = result(running(SERVO, f"value = {call}"))
+
+    assert f"int value = {call};" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        ("servo.attach()", "Servo.attach() takes 1 to 3 arguments but 0 were given."),
+        ("servo.attach(1, 2, 3, 4)", "Servo.attach() takes 1 to 3 arguments but 4 were given."),
+        ("servo.detach(1)", "Servo.detach() takes exactly 0 arguments but 1 was given."),
+        ("servo.write()", "Servo.write() takes exactly 1 argument but 0 were given."),
+        ("servo.read(1)", "Servo.read() takes exactly 0 arguments but 1 was given."),
+    ],
+)
+def test_a_library_method_rejects_arguments_it_does_not_take(error, call, message):
+    error(running(SERVO, call), message=message)
+
+
+def test_a_library_class_has_only_the_methods_it_declares(error):
+    error(running(SERVO, "servo.tune(90)"), message="Class 'Servo' has no method 'tune'.")
+
+
+def test_a_library_object_without_class_metadata_keeps_its_methods_unchecked(result):
+    # SoftwareSerial registers no class, so nothing is known about its members.
+    compiled = result(running("from micropy import SoftwareSerial\n\nlink = SoftwareSerial(10, 11)\n", "link.begin(9600)"))
+
+    assert "link.begin(9600);" in compiled.cpp
+
+
+# ------------------------------------------ libraries the core also provides
+LIQUID_CRYSTAL = "from micropy import LiquidCrystal\n\nlcd = LiquidCrystal(12, 13, 14, 15, 16)\n"
+
+
+def test_liquid_crystal_is_registered_as_a_library_type(result):
+    compiled = result(LIQUID_CRYSTAL + SHELL)
+
+    assert compiled.context.includes == ["LiquidCrystal.h"]
+    assert compiled.context.external_types["LiquidCrystal"] == "LiquidCrystal"
+    assert "LiquidCrystal lcd(12, 13, 14, 15, 16);" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    "call",
+    ['lcd.begin(16, 2)', 'lcd.begin(16, 2, 10, 10)', 'lcd.print("hi")', "lcd.setCursor(0, 1)", "lcd.nonsense(1, 2, 3)"],
+)
+def test_liquid_crystal_members_are_passed_through(result, call):
+    # Nothing is registered for LiquidCrystal's methods, so every one of them is
+    # emitted as written, whatever its arity and whatever it returns.
+    compiled = result(running(LIQUID_CRYSTAL, call))
+
+    assert f"{call};" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    ("arguments", "declared"),
+    [("", "LiquidCrystal lcd;"), ("()", "LiquidCrystal lcd;"), ("(9)", "LiquidCrystal lcd(9);")],
+)
+def test_liquid_crystal_constructor_arguments_are_not_checked(result, arguments, declared):
+    compiled = result(f"from micropy import LiquidCrystal\n\nlcd = LiquidCrystal{arguments}\n" + SHELL)
+
+    assert declared in compiled.cpp
+
+
+def test_a_library_type_can_be_annotated(result):
+    compiled = result("from micropy import LiquidCrystal\n\nlcd: LiquidCrystal = LiquidCrystal(12, 13)\n" + SHELL)
+
+    assert "LiquidCrystal lcd(12, 13);" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    "call",
+    ["Wire.begin()", "Wire.beginTransmission(3)", "Wire.write(1)", "SPI.transfer(0)", "EEPROM.read(0)", "EEPROM.write(1, 255)"],
+)
+def test_a_core_library_needs_no_import_to_be_used(result, call):
+    # Wire, SPI and EEPROM come with the Arduino core, so there is nothing to
+    # import and nothing to include.
+    compiled = result(running("", call))
+
+    assert compiled.context.includes == []
+    assert f"{call};" in compiled.cpp
+
+
+def test_a_core_library_can_be_imported_for_its_header(result):
+    compiled = result("from micropy import Wire\n" + SHELL)
+
+    assert compiled.context.includes == ["Wire.h"]
+    # Importing it registers no type: the core declares the object, not a type
+    # a program declares a value of.
+    assert compiled.context.external_types == {}
+
+
+def test_a_core_library_member_must_be_called(error):
+    error(running("", "value = Wire.available"), message="Wire.available must be called as a method.")
+
+
+def test_a_core_library_name_cannot_be_redefined(error):
+    error("Wire = 5\n" + SHELL, message="'Wire' is an Arduino name and cannot be redefined.")
+
+
+def test_a_core_library_name_cannot_be_a_variable(error):
+    error(running("", "Wire = 5"), message="'Wire' is used by the Arduino core and cannot be a variable name.")
+
+
+def test_a_registered_method_is_found_on_any_value_of_the_class(result, registered_library):
+    compiled = result(running(WIDGET, "other = Widget(5)\n    other.spin()"))
+
+    assert "Widget other(5);" in compiled.cpp
+    assert "other.spin();" in compiled.cpp
+
+
+def test_a_registered_method_returns_what_it_declares(result, registered_library):
+    compiled = result(running(WIDGET, "value = w.spin(1)"))
+
+    assert "int value = w.spin(1);" in compiled.cpp
+
+
+def test_a_registered_method_rejects_arguments_it_does_not_take(error, registered_library):
+    error(running(WIDGET, "w.spin(1, 2)"), message="Widget.spin() takes 0 to 1 arguments but 2 were given.")
+
+
+def test_a_registered_class_has_only_the_methods_it_declares(error, registered_library):
+    error(running(WIDGET, "w.tune()"), message="Class 'Widget' has no method 'tune'.")
+
+
+def test_a_library_method_is_unknown_before_the_library_is_imported(error):
+    error("def main():\n    servo.attach(9)\n\ndef loop():\n    pass\n", message="Unknown name: 'servo'")
+
+
+# ------------------------------------------- libraries with no cpp_type
+@pytest.fixture
+def class_only_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It declares no type of its own, only a class, so nothing but the class
+    registration can make the type available.
+    """
+
+    library = Library(
+        "Gadget",
+        "Gadget.h",
+        None,
+        classes=(ApiClass("Gadget", "Gadget", methods=(ApiMethod("ping", 0, 0),), ctor_min_args=0, ctor_max_args=0),),
+    )
+    monkeypatch.setitem(LIBRARIES, "Gadget", library)
+
+    return library
+
+
+def test_a_class_only_library_provides_its_type(result, class_only_library):
+    compiled = result("from micropy import Gadget\n" + SHELL)
+
+    assert compiled.context.includes == ["Gadget.h"]
+    assert compiled.context.external_types["Gadget"] == "Gadget"
+
+
+def test_a_class_only_library_validates_its_constructor(error, class_only_library):
+    error("from micropy import Gadget\n\ngadget = Gadget(1)\n" + SHELL, message="Gadget() takes exactly 0 arguments but 1 was given.")
+
+
+def test_a_class_only_library_keeps_its_method_validation(error, class_only_library):
+    error(
+        "from micropy import Gadget\n\ngadget = Gadget()\n\ndef main():\n    gadget.ping(1)\n\ndef loop():\n    pass\n",
+        message="Gadget.ping() takes exactly 0 arguments but 1 was given.",
+    )
+
+
+def test_a_class_only_library_records_the_library_and_the_class_it_provides(result, class_only_library):
+    compiled = result("from micropy import Gadget\n" + SHELL)
+
+    # The library is imported under the name of the class it provides, and the
+    # class is what the compiler resolves that name to.
+    assert list(compiled.context.imported_libraries) == ["Gadget"]
+    assert compiled.context.library_class("Gadget").cpp_type == "Gadget"
+
+
+def test_a_library_without_classes_keeps_only_its_own_type(result):
+    compiled = result("from micropy import SoftwareSerial\n" + SHELL)
+
+    assert compiled.context.external_types == {"SoftwareSerial": "SoftwareSerial"}
+    assert compiled.context.library_class("SoftwareSerial") is None
+
+
+# ------------------------------------------------- argument type checking
+@pytest.fixture
+def typed_library(monkeypatch) -> Library:
+    """A library that describes the types of some of the arguments it takes.
+
+    It registers ``set_speed``, ``configure`` and a constructor whose types it
+    knows, and ``ping``, whose types it does not, so both paths are exercised.
+    """
+
+    library = Library(
+        "Gadget",
+        "Gadget.h",
+        "Gadget",
+        classes=(
+            ApiClass(
+                "Gadget",
+                "Gadget",
+                methods=(
+                    ApiMethod("set_speed", 1, 1, "void", params=("int",)),
+                    ApiMethod("configure", 2, 2, "void", params=("int", "float")),
+                    ApiMethod("ping", 0, 1, "int"),
+                ),
+                ctor_params=("int",),
+                ctor_min_args=1,
+                ctor_max_args=1,
+            ),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "Gadget", library)
+
+    return library
+
+
+TYPED = "from micropy import Gadget\n\ngadget = Gadget(10)\n"
+
+
+def test_a_method_takes_the_argument_types_it_declares(result, typed_library):
+    compiled = result(running(TYPED, "gadget.set_speed(100)"))
+
+    assert "gadget.set_speed(100);" in compiled.cpp
+
+
+def test_a_method_rejects_an_argument_type_it_does_not_declare(error, typed_library):
+    error(running(TYPED, "gadget.set_speed('100')"), message="Argument 1 of Gadget.set_speed() must be int, not const char*.")
+
+
+@pytest.mark.parametrize("body", ["gadget.configure(1, 2.5)", "gadget.configure(1, 2)"])
+def test_every_argument_of_a_method_is_checked_in_turn(result, typed_library, body):
+    # An int is stored in a float, the way the type system allows everywhere else.
+    compiled = result(running(TYPED, body))
+
+    assert f"{body};" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("gadget.configure('1', 2.5)", "Argument 1 of Gadget.configure() must be int, not const char*."),
+        ("gadget.configure(1, '2.5')", "Argument 2 of Gadget.configure() must be float, not const char*."),
+    ],
+)
+def test_a_method_rejects_the_argument_type_at_the_position_it_was_given(error, typed_library, body, message):
+    error(running(TYPED, body), message=message)
+
+
+def test_a_constructor_takes_the_argument_types_it_declares(result, typed_library):
+    compiled = result("from micropy import Gadget\n\ngadget = Gadget(10)\n" + SHELL)
+
+    assert "Gadget gadget(10);" in compiled.cpp
+
+
+def test_a_constructor_rejects_an_argument_type_it_does_not_declare(error, typed_library):
+    error("from micropy import Gadget\n\ngadget = Gadget('10')\n" + SHELL, message="Argument 1 of Gadget() must be int, not const char*.")
+
+
+def test_a_method_without_declared_types_only_has_its_arity_checked(result, typed_library):
+    # Gadget.ping() registers no types, so this compiles the way it did before
+    # any library could describe one.
+    compiled = result(running(TYPED, "value = gadget.ping(1.5)"))
+
+    assert "int value = gadget.ping(1.5);" in compiled.cpp
+
+
+def test_a_method_without_declared_types_still_rejects_too_many_arguments(error, typed_library):
+    error(running(TYPED, "gadget.ping(1, 2)"), message="Gadget.ping() takes 0 to 1 arguments but 2 were given.")
+
+
+@pytest.mark.parametrize("call", ["servo.attach(9)", "servo.write(90)", "servo.read()", "servo.write(90.5)"])
+def test_servo_still_takes_the_arguments_it_always_took(result, call):
+    # Servo describes no argument types, so all it ever checked is its arity.
+    compiled = result(running(SERVO, call))
+
+    assert f"{call};" in compiled.cpp
 
 
 # ------------------------------------------------------------------- classes

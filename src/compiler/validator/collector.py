@@ -18,7 +18,7 @@ from .analyzer import RETYPE_PASSES, BodyAnalyzer
 from .api import API_FUNCTIONS, ARDUINO_CONSTANTS, ARDUINO_OBJECTS, BUILTIN_FUNCTIONS
 from .ast_utils import is_docstring, unsupported_label
 from .context import CompileContext
-from .libraries import API_IMPORT_MODULES, LIBRARIES
+from .libraries import API_IMPORT_MODULES, Library, library_for, supported_libraries
 from .naming import check_reserved_variable
 from .symbols import ClassInfo, FunctionInfo, MethodInfo, VarInfo
 from .types import CONFLICT_TYPE, DEFAULT_TYPE, UNKNOWN_TYPE, VOID_TYPE, merge_types, resolve_annotation, types_compatible
@@ -91,15 +91,20 @@ class Validator:
         self.ctx.error(node, f"Unsupported Python feature: {unsupported_label(node)}")
 
     # imports
+    def _import_library(self, name: str) -> Optional[Library]:
+        library = library_for(name)
+        if library is not None:
+            self.ctx.register_library(library)
+
+        return library
+
     def _collect_import(self, node: ast.stmt) -> None:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".")[0]
                 if alias.name in API_IMPORT_MODULES or root in API_IMPORT_MODULES:
-                    continue  # `import micropy` is accepted for IDE support only
-                library = LIBRARIES.get(root)
-                if library is not None:
-                    self.ctx.register_library(library)
+                    continue
+                if self._import_library(root) is not None:
                     continue
                 self._unsupported_library(node, alias.name)
             return
@@ -117,13 +122,11 @@ class Validator:
                         node,
                         f"'{alias.name}' is not part of the micropy API.",
                         hint="Known names:",
-                        hint_lines=sorted(API_FUNCTIONS) + sorted(LIBRARIES),
+                        hint_lines=sorted(API_FUNCTIONS) + sorted(supported_libraries()),
                     )
             return
 
-        library = LIBRARIES.get(root)
-        if library is not None and root == module:
-            self.ctx.register_library(library)
+        if root == module and self._import_library(root) is not None:
             for alias in node.names:
                 if alias.name in ("*", root):
                     continue
@@ -136,7 +139,7 @@ class Validator:
             node,
             f"Python library '{name}' is not supported on Arduino.",
             hint="Arduino libraries you can import:",
-            hint_lines=[f"from micropy import {lib}" for lib in sorted(LIBRARIES)]
+            hint_lines=[f"from micropy import {lib}" for lib in sorted(supported_libraries())]
             + ["from micropy import *  (IDE/type-checker support only)"],
         )
 

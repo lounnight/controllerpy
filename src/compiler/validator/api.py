@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Optional
+from .libraries import CORE_OBJECTS
 
 __all__ = [
     "ApiFunction",
@@ -51,9 +52,7 @@ ARDUINO_CONSTANTS = frozenset(
     }
 )
 
-#: Objects declared by the Arduino core itself (methods are passed through).
-ARDUINO_OBJECTS = frozenset({"Serial", "Wire", "SPI", "EEPROM"})
-
+ARDUINO_OBJECTS = CORE_OBJECTS | {"Serial"}
 
 @dataclass(frozen=True)
 class ApiFunction:

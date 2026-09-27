@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 from ...boards import Board, default_board
 from ...errors import MicropyError
 from .api import API_FUNCTIONS, ARDUINO_CONSTANTS, BUILTIN_FUNCTIONS
-from .libraries import LIBRARIES, Library
+from .libraries import ApiClass, Library, library_for
 from .naming import cpp_name as _cpp_name, is_reserved
 from .symbols import ClassInfo, FunctionInfo, Scope, VarInfo
 
@@ -94,7 +94,13 @@ class CompileContext:
         return None
 
     def is_object_type(self, cpp_type: Optional[str]) -> bool:
-        return bool(cpp_type) and (cpp_type in self.classes or cpp_type in self.external_types)
+        return bool(cpp_type) and (cpp_type in self.classes or self.is_library_type(cpp_type))
+
+    def is_library_type(self, cpp_type: Optional[str]) -> bool:
+        if not cpp_type:
+            return False
+
+        return cpp_type in self.external_types or self.api_class_of(cpp_type) is not None
 
     def add_function(self, info: FunctionInfo) -> FunctionInfo:
         self.functions[info.name] = info
@@ -127,9 +133,27 @@ class CompileContext:
         self.add_include(library.header)
         if library.cpp_type:
             self.external_types[library.name] = library.cpp_type
+        for api_class in library.classes:
+            self.external_types[api_class.name] = api_class.cpp_type
 
+    def library_class(self, name: str) -> Optional[ApiClass]:
+        for library in self.imported_libraries.values():
+            found = library.class_named(name)
+            if found is not None:
+                return found
+
+        return None
+
+    def api_class_of(self, cpp_type: str) -> Optional[ApiClass]:
+        for library in self.imported_libraries.values():
+            found = library.class_of_type(cpp_type)
+            if found is not None:
+                return found
+
+        return None
+    
     def register_api_import(self, name: str) -> bool:
-        library = LIBRARIES.get(name)
+        library = library_for(name)
         if library is not None:
             self.register_library(library)
             return True

@@ -32,7 +32,7 @@ from .api import (
 from .ast_utils import UNSUPPORTED_FEATURES
 from .collector import Validator
 from .context import CompileContext
-from .libraries import API_IMPORT_MODULES, LIBRARIES, Library
+from .libraries import API_IMPORT_MODULES, LIBRARIES, ApiClass, ApiMethod, Library
 from .symbols import ClassInfo, FunctionInfo, MethodInfo, Scope, VarInfo
 from .types import CONFLICT_TYPE, DEFAULT_TYPE, UNKNOWN_TYPE, VOID_TYPE
 
@@ -49,7 +49,9 @@ __all__ = [
     "UNSUPPORTED_FEATURES",
     "UNKNOWN_TYPE",
     "VOID_TYPE",
+    "ApiClass",
     "ApiFunction",
+    "ApiMethod",
     "BodyAnalyzer",
     "ClassInfo",
     "CompileContext",
