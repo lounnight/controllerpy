@@ -94,7 +94,13 @@ class CompileContext:
         return None
 
     def is_object_type(self, cpp_type: Optional[str]) -> bool:
-        return bool(cpp_type) and (cpp_type in self.classes or cpp_type in self.external_types)
+        return bool(cpp_type) and (cpp_type in self.classes or self.is_library_type(cpp_type))
+
+    def is_library_type(self, cpp_type: Optional[str]) -> bool:
+        if not cpp_type:
+            return False
+
+        return cpp_type in self.external_types or self.api_class_of(cpp_type) is not None
 
     def add_function(self, info: FunctionInfo) -> FunctionInfo:
         self.functions[info.name] = info
@@ -127,6 +133,8 @@ class CompileContext:
         self.add_include(library.header)
         if library.cpp_type:
             self.external_types[library.name] = library.cpp_type
+        for api_class in library.classes:
+            self.external_types[api_class.name] = api_class.cpp_type
 
     def library_class(self, name: str) -> Optional[ApiClass]:
         for library in self.imported_libraries.values():

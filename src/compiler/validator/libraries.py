@@ -112,7 +112,14 @@ API_IMPORT_MODULES = frozenset(
 )
 
 def library_for(name: str) -> Optional[Library]:
-    return LIBRARIES.get(name)
+    library = LIBRARIES.get(name)
+    if library is not None:
+        return library
+    for candidate in LIBRARIES.values():
+        if candidate.class_named(name) is not None:
+            return candidate
+
+    return None
 
 def supported_libraries() -> Dict[str, Library]:
     return dict(LIBRARIES)

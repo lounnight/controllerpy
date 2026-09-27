@@ -1026,6 +1026,149 @@ def test_a_constructor_produces_the_type_its_class_declares(program, library_wit
     assert "int value = w.setSpeed(1);" in cpp
 
 
+@pytest.fixture
+def class_only_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It declares no type of its own, only a class, so nothing but the class
+    registration can make the type available.
+    """
+
+    library = Library(
+        "Doohickey",
+        "Doohickey.h",
+        None,
+        classes=(
+            ApiClass(
+                "Doohickey",
+                "Doohickey",
+                methods=(ApiMethod("set_speed", 1, 1, "int", "setSpeed"),),
+                ctor_min_args=0,
+                ctor_max_args=0,
+            ),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "Doohickey", library)
+
+    return library
+
+
+def test_a_class_only_library_provides_the_type_its_class_declares(program, class_only_library):
+    cpp = program(
+        """
+        from micropy import Doohickey
+
+        thing = Doohickey()
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include <Doohickey.h>" in cpp
+    assert "Doohickey thing;" in cpp
+
+
+def test_a_class_only_library_class_uses_its_registered_methods(program, class_only_library):
+    cpp = program(
+        """
+        from micropy import Doohickey
+
+        thing = Doohickey()
+
+        def main():
+            value = thing.set_speed(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "int value = thing.setSpeed(100);" in cpp
+
+
+@pytest.fixture
+def multi_class_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It declares no type of its own and contributes two classes, each with its
+    own constructor, so neither class can be standing in for the other.
+    """
+
+    library = Library(
+        "SomeLib",
+        "SomeLib.h",
+        None,
+        classes=(
+            ApiClass("Foo", "Foo", methods=(ApiMethod("ping", 0, 0),)),
+            ApiClass("Bar", "Bar", ctor_min_args=1, ctor_max_args=1),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "SomeLib", library)
+
+    return library
+
+
+def test_one_library_can_provide_several_classes(program, multi_class_library):
+    cpp = program(
+        """
+        from micropy import Foo
+        from micropy import Bar
+
+        foo = Foo()
+        bar = Bar(3)
+
+        def main():
+            foo.ping()
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.count("#include <SomeLib.h>") == 1
+    assert "Foo foo;" in cpp
+    assert "Bar bar(3);" in cpp
+    assert "foo.ping();" in cpp
+
+
+@pytest.fixture
+def oddly_named_class_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    Its class is imported under one name and is a different type in C++, which
+    is what tells the two apart.
+    """
+
+    library = Library(
+        "OddLib",
+        "OddLib.h",
+        None,
+        classes=(ApiClass("Odd", "odd_t", methods=(ApiMethod("ping", 0, 0),)),),
+    )
+    monkeypatch.setitem(LIBRARIES, "OddLib", library)
+
+    return library
+
+
+def test_a_class_is_found_by_the_type_it_produces(program, oddly_named_class_library):
+    cpp = program(
+        """
+        from micropy import Odd
+
+        odd = Odd()
+
+        def main():
+            odd.ping()
+
+        def loop():
+            pass
+        """
+    )
+    assert "odd_t odd;" in cpp
+    assert "odd.ping();" in cpp
+
+
 def test_an_arduino_builtin_object_member_keeps_its_name(program):
     cpp = program(
         """

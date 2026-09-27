@@ -152,7 +152,7 @@ class ExpressionEmitter:
         base_type = self.type_of(base)
         if base_type in ARDUINO_OBJECTS:
             return attribute
-        if base_type in self.ctx.external_types:
+        if self.ctx.is_library_type(base_type):
             return self._library_member_name(base_type, attribute)
 
         return self.name(attribute)

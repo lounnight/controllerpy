@@ -590,6 +590,60 @@ def test_a_library_method_is_unknown_before_the_library_is_imported(error):
     error("def main():\n    servo.attach(9)\n\ndef loop():\n    pass\n", message="Unknown name: 'servo'")
 
 
+# ------------------------------------------- libraries with no cpp_type
+@pytest.fixture
+def class_only_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It declares no type of its own, only a class, so nothing but the class
+    registration can make the type available.
+    """
+
+    library = Library(
+        "Gadget",
+        "Gadget.h",
+        None,
+        classes=(ApiClass("Gadget", "Gadget", methods=(ApiMethod("ping", 0, 0),), ctor_min_args=0, ctor_max_args=0),),
+    )
+    monkeypatch.setitem(LIBRARIES, "Gadget", library)
+
+    return library
+
+
+def test_a_class_only_library_provides_its_type(result, class_only_library):
+    compiled = result("from micropy import Gadget\n" + SHELL)
+
+    assert compiled.context.includes == ["Gadget.h"]
+    assert compiled.context.external_types["Gadget"] == "Gadget"
+
+
+def test_a_class_only_library_validates_its_constructor(error, class_only_library):
+    error("from micropy import Gadget\n\ngadget = Gadget(1)\n" + SHELL, message="Gadget() takes exactly 0 arguments but 1 was given.")
+
+
+def test_a_class_only_library_keeps_its_method_validation(error, class_only_library):
+    error(
+        "from micropy import Gadget\n\ngadget = Gadget()\n\ndef main():\n    gadget.ping(1)\n\ndef loop():\n    pass\n",
+        message="Gadget.ping() takes exactly 0 arguments but 1 was given.",
+    )
+
+
+def test_a_class_only_library_records_the_library_and_the_class_it_provides(result, class_only_library):
+    compiled = result("from micropy import Gadget\n" + SHELL)
+
+    # The library is imported under the name of the class it provides, and the
+    # class is what the compiler resolves that name to.
+    assert list(compiled.context.imported_libraries) == ["Gadget"]
+    assert compiled.context.library_class("Gadget").cpp_type == "Gadget"
+
+
+def test_a_library_without_classes_keeps_only_its_own_type(result):
+    compiled = result("from micropy import SoftwareSerial\n" + SHELL)
+
+    assert compiled.context.external_types == {"SoftwareSerial": "SoftwareSerial"}
+    assert compiled.context.library_class("SoftwareSerial") is None
+
+
 # ------------------------------------------------------------------- classes
 CLASS_SHELL = """
 class Led:
