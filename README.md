@@ -610,7 +610,7 @@ chain is required.
 ## Roadmap
 
 - [x] Improve CLI
-- [ ] More Arduino libraries in the registry (and a `Servo`-style API map).
+- [x] More Arduino libraries in the registry (and a `Servo`-style API map).
 - [ ] Structs/lists of objects, `str` helpers and a small `String` builder.
 - [ ] Add small functions
 - [ ] Build a small text editor in the CLI
