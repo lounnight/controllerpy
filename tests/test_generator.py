@@ -864,6 +864,47 @@ def test_library_object_inside_a_function(program):
     assert "link.begin(9600);" in cpp
 
 
+def test_a_library_type_without_registered_methods_is_declared_and_used_as_written(program):
+    cpp = program(
+        """
+        from micropy import LiquidCrystal
+
+        lcd = LiquidCrystal(12, 13, 14, 15, 16)
+
+        def main():
+            lcd.begin(16, 2)
+            lcd.print("hi")
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include <LiquidCrystal.h>" in cpp
+    assert "LiquidCrystal lcd(12, 13, 14, 15, 16);" in cpp
+    assert "lcd.begin(16, 2);" in cpp
+    assert 'lcd.print("hi");' in cpp
+
+
+def test_the_core_libraries_are_called_without_being_included(program):
+    # Wire, SPI and EEPROM are provided by the Arduino core, so the calls go out
+    # as written and the generated program includes no header for them.
+    cpp = program(
+        """
+        def main():
+            Wire.begin()
+            SPI.transfer(176)
+            EEPROM.write(0, 255)
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include" not in cpp
+    assert "Wire.begin();" in cpp
+    assert "SPI.transfer(176);" in cpp
+    assert "EEPROM.write(0, 255);" in cpp
+
+
 def test_a_registered_method_keeps_its_cpp_name(program):
     cpp = program(
         """

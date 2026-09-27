@@ -23,12 +23,16 @@ has its arity checked and nothing else, so a library is described as far as it
 is known to be.  The types are listed one per argument, which means an
 overloaded method is described by the parameters of a single one of its
 signatures at most - the rest is left to C++.
+
+A library the Arduino core happens to provide as an object that is always there
+(``Wire.begin()`` needs no import) is registered like any other library and
+marked ``core``; :data:`CORE_OBJECTS` is derived from the registrations, so what
+the core provides is described once, here.
 """
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
-
-__all__ = ["ApiClass", "ApiMethod", "Library", "LIBRARIES", "API_IMPORT_MODULES", "library_for", "supported_libraries"]
+from typing import Dict, FrozenSet, Optional, Tuple
+__all__ = ["ApiClass", "ApiMethod", "Library", "LIBRARIES", "API_IMPORT_MODULES", "CORE_OBJECTS", "library_for", "supported_libraries"]
 
 @dataclass(frozen=True)
 class ApiMethod:
@@ -67,6 +71,7 @@ class Library:
 
     module: Optional[str] = None
     classes: Tuple[ApiClass, ...] = ()
+    core: bool = False
 
     def class_named(self, name: str) -> Optional[ApiClass]:
         for candidate in self.classes:
@@ -103,10 +108,12 @@ LIBRARIES: Dict[str, Library] = {
     ),
     "SoftwareSerial": Library("SoftwareSerial", "SoftwareSerial.h", "SoftwareSerial"),
     "LiquidCrystal": Library("LiquidCrystal", "LiquidCrystal.h", "LiquidCrystal"),
-    "Wire": Library("Wire", "Wire.h"),
-    "SPI": Library("SPI", "SPI.h"),
-    "EEPROM": Library("EEPROM", "EEPROM.h"),
+    "Wire": Library("Wire", "Wire.h", core=True),
+    "SPI": Library("SPI", "SPI.h", core=True),
+    "EEPROM": Library("EEPROM", "EEPROM.h", core=True),
 }
+
+CORE_OBJECTS: FrozenSet[str] = frozenset(name for name, library in LIBRARIES.items() if library.core)
 
 API_IMPORT_MODULES = frozenset(
     {

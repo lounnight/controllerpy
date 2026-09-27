@@ -565,6 +565,80 @@ def test_a_library_object_without_class_metadata_keeps_its_methods_unchecked(res
     assert "link.begin(9600);" in compiled.cpp
 
 
+# ------------------------------------------ libraries the core also provides
+LIQUID_CRYSTAL = "from micropy import LiquidCrystal\n\nlcd = LiquidCrystal(12, 13, 14, 15, 16)\n"
+
+
+def test_liquid_crystal_is_registered_as_a_library_type(result):
+    compiled = result(LIQUID_CRYSTAL + SHELL)
+
+    assert compiled.context.includes == ["LiquidCrystal.h"]
+    assert compiled.context.external_types["LiquidCrystal"] == "LiquidCrystal"
+    assert "LiquidCrystal lcd(12, 13, 14, 15, 16);" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    "call",
+    ['lcd.begin(16, 2)', 'lcd.begin(16, 2, 10, 10)', 'lcd.print("hi")', "lcd.setCursor(0, 1)", "lcd.nonsense(1, 2, 3)"],
+)
+def test_liquid_crystal_members_are_passed_through(result, call):
+    # Nothing is registered for LiquidCrystal's methods, so every one of them is
+    # emitted as written, whatever its arity and whatever it returns.
+    compiled = result(running(LIQUID_CRYSTAL, call))
+
+    assert f"{call};" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    ("arguments", "declared"),
+    [("", "LiquidCrystal lcd;"), ("()", "LiquidCrystal lcd;"), ("(9)", "LiquidCrystal lcd(9);")],
+)
+def test_liquid_crystal_constructor_arguments_are_not_checked(result, arguments, declared):
+    compiled = result(f"from micropy import LiquidCrystal\n\nlcd = LiquidCrystal{arguments}\n" + SHELL)
+
+    assert declared in compiled.cpp
+
+
+def test_a_library_type_can_be_annotated(result):
+    compiled = result("from micropy import LiquidCrystal\n\nlcd: LiquidCrystal = LiquidCrystal(12, 13)\n" + SHELL)
+
+    assert "LiquidCrystal lcd(12, 13);" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    "call",
+    ["Wire.begin()", "Wire.beginTransmission(3)", "Wire.write(1)", "SPI.transfer(0)", "EEPROM.read(0)", "EEPROM.write(1, 255)"],
+)
+def test_a_core_library_needs_no_import_to_be_used(result, call):
+    # Wire, SPI and EEPROM come with the Arduino core, so there is nothing to
+    # import and nothing to include.
+    compiled = result(running("", call))
+
+    assert compiled.context.includes == []
+    assert f"{call};" in compiled.cpp
+
+
+def test_a_core_library_can_be_imported_for_its_header(result):
+    compiled = result("from micropy import Wire\n" + SHELL)
+
+    assert compiled.context.includes == ["Wire.h"]
+    # Importing it registers no type: the core declares the object, not a type
+    # a program declares a value of.
+    assert compiled.context.external_types == {}
+
+
+def test_a_core_library_member_must_be_called(error):
+    error(running("", "value = Wire.available"), message="Wire.available must be called as a method.")
+
+
+def test_a_core_library_name_cannot_be_redefined(error):
+    error("Wire = 5\n" + SHELL, message="'Wire' is an Arduino name and cannot be redefined.")
+
+
+def test_a_core_library_name_cannot_be_a_variable(error):
+    error(running("", "Wire = 5"), message="'Wire' is used by the Arduino core and cannot be a variable name.")
+
+
 def test_a_registered_method_is_found_on_any_value_of_the_class(result, registered_library):
     compiled = result(running(WIDGET, "other = Widget(5)\n    other.spin()"))
 

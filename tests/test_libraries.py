@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import dataclasses
 
+from micropy.compiler.validator.api import ARDUINO_OBJECTS
 from micropy.compiler.validator.libraries import (
+    CORE_OBJECTS,
     LIBRARIES,
     ApiClass,
     ApiMethod,
@@ -164,6 +166,68 @@ def test_supported_libraries_is_a_copy_of_the_table():
 
     assert "Servo" in LIBRARIES
     assert library_for("Servo") is not None
+
+
+# -------------------------------------------------------- the listed libraries
+#: Every library micropy knows, as the registry lists them.  Each one is a real
+#: Arduino library that shipped with the core, not a fixture.
+LIBRARY_NAMES = ("EEPROM", "LiquidCrystal", "SPI", "Servo", "SoftwareSerial", "Wire")
+
+#: The ones the Arduino core also provides as an object that is always there.
+CORE_LIBRARY_NAMES = ("EEPROM", "SPI", "Wire")
+
+#: The ones a program declares a value of.
+TYPE_LIBRARY_NAMES = ("LiquidCrystal", "Servo", "SoftwareSerial")
+
+
+def test_every_arduino_library_micropy_knows_is_registered():
+    assert sorted(supported_libraries()) == list(LIBRARY_NAMES)
+
+
+def test_every_registered_library_is_listed_with_its_own_header():
+    for name in LIBRARY_NAMES:
+        assert library_for(name).header == f"{name}.h"
+
+
+def test_the_libraries_that_provide_a_type_register_it():
+    for name in TYPE_LIBRARY_NAMES:
+        assert library_for(name).cpp_type == name
+
+
+def test_only_servo_describes_the_api_of_its_class():
+    # Every other library is described as far as it is known, and no further:
+    # registering the methods of a library turns a call it does not list into an
+    # error, so a partial description would take the pass-through away.
+    for name in set(LIBRARY_NAMES) - {"Servo"}:
+        assert library_for(name).classes == ()
+
+
+def test_the_core_provided_libraries_are_the_ones_the_arduino_core_declares():
+    assert set(CORE_OBJECTS) == set(CORE_LIBRARY_NAMES)
+
+
+def test_every_core_object_is_a_library_the_registry_describes():
+    for name in CORE_OBJECTS:
+        library = library_for(name)
+        assert library is not None
+        assert library.core is True
+        # Wire, SPI and EEPROM are objects the core declares, not types a
+        # program declares a value of, and nothing is known about their members.
+        assert library.cpp_type is None
+        assert library.classes == ()
+
+
+def test_a_library_is_not_taken_for_a_core_object_unless_it_says_so():
+    for name in TYPE_LIBRARY_NAMES:
+        assert library_for(name).core is False
+        assert name not in CORE_OBJECTS
+
+
+def test_the_arduino_objects_are_the_core_libraries_and_the_serial_port():
+    # Serial belongs to the Arduino core itself: it has no header and is never
+    # imported, so it is not a library and stays out of the registry.
+    assert ARDUINO_OBJECTS == CORE_OBJECTS | {"Serial"}
+    assert library_for("Serial") is None
 
 
 # --------------------------------------------------------------------- Servo
