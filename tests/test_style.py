@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-from micropy.cli import style
+from controllerpy.cli import style
 
 
 class Terminal(io.StringIO):

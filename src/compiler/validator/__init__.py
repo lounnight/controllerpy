@@ -1,6 +1,6 @@
 """Stage 2 of the compiler: Python -> validated, typed Arduino C++.
 
-Stage 2 is the only stage that knows what micropy is: it decides which Python
+Stage 2 is the only stage that knows what controllerpy is: it decides which Python
 constructs are part of the supported subset and works out the C++ type of every
 name.  It is split so each module has one job:
 
@@ -15,7 +15,7 @@ name.  It is split so each module has one job:
 
 Nothing below depends on the generator, and the modules build on each other in
 that order, so the package has no cycles.  The first group stays a leaf of the
-package: it reports a problem through the :class:`~micropy.errors.ErrorReporter`
+package: it reports a problem through the :class:`~controllerpy.errors.ErrorReporter`
 it is handed (``CompileContext.error``), and :mod:`types` is told which class
 names exist instead of being given the context to read them from.
 """

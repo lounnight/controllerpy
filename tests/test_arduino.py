@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from micropy.arduino import (
+from controllerpy.arduino import (
     ENV_VAR,
     INSTALL_URL,
     compile_sketch,
@@ -14,8 +14,8 @@ from micropy.arduino import (
     upload_sketch,
     write_sketch,
 )
-from micropy.cli import sketch_name
-from micropy.errors import ArduinoCliError
+from controllerpy.cli import sketch_name
+from controllerpy.errors import ArduinoCliError
 
 
 # ------------------------------------------------------------------ discovery

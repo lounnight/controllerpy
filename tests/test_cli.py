@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from micropy import __version__
-from micropy.arduino import ENV_VAR, INSTALL_URL
-from micropy.cli import (
+from controllerpy import __version__
+from controllerpy.arduino import ENV_VAR, INSTALL_URL
+from controllerpy.cli import (
     EXIT_COMPILE_ERROR,
     EXIT_INTERNAL,
     EXIT_OK,
@@ -21,10 +21,10 @@ from micropy.cli import (
     main,
     output,
 )
-from micropy.cli.commands import toolchain
-from micropy.compiler.validator import API_FUNCTIONS
-from micropy.errors import MicropyError
-from micropy.runtime import API_STUB
+from controllerpy.cli.commands import toolchain
+from controllerpy.compiler.validator import API_FUNCTIONS
+from controllerpy.errors import ControllerPyError
+from controllerpy.runtime import API_STUB
 
 PROGRAM = 'LED = 13\n\ndef main():\n    pin_mode(LED, OUTPUT)\n\ndef loop():\n    digital_write(LED, HIGH)\n    delay(1000)\n'
 
@@ -106,7 +106,7 @@ def _signature(node: ast.FunctionDef) -> str:
 class StubAPI:
     """The API a ``.pyi`` publishes, read by parsing it rather than by matching.
 
-    ``micropy init`` and ``micropy stubs`` copy the bundled stub verbatim, so
+    ``controllerpy init`` and ``controllerpy stubs`` copy the bundled stub verbatim, so
     the contract these tests care about is the one that file *declares* - which
     names exist, what they take, what they return.  Parsing states that
     directly and leaves the layout free: adding a docstring to a function, or
@@ -177,7 +177,7 @@ def test_build_reports_source_errors_without_a_traceback(tmp_path, capsys):
     assert main(["build", str(broken), "-o", str(tmp_path / "build")]) == EXIT_COMPILE_ERROR
     captured = capsys.readouterr()
     err = captured.err
-    assert err.startswith(f"  {output.FAILURE} MicropyError")
+    assert err.startswith(f"  {output.FAILURE} ControllerPyError")
     assert "Missing required function: loop()" in err
     assert "Traceback" not in err
     assert not (tmp_path / "build").exists()
@@ -294,7 +294,7 @@ def test_compile_verbose_echo_does_not_come_from_the_toolchain(
     """Silence the formatter: a surviving ``$`` would mean a handler printed it.
 
     This is the other half of the test above - the echo is routed through
-    cli/output.py, not printed by micropy.arduino or the handler.
+    cli/output.py, not printed by controllerpy.arduino or the handler.
     """
 
     script = fake_arduino_cli()
@@ -337,7 +337,7 @@ def test_upload_needs_a_port(source, capsys):
     assert main(["upload", str(source)]) == EXIT_USAGE
     err = capsys.readouterr().err
     assert "serial port" in err
-    assert "micropy ports" in err
+    assert "controllerpy ports" in err
 
 
 def test_upload_rejects_a_missing_port_path(source, tmp_path, fake_arduino_cli, capsys):
@@ -438,7 +438,7 @@ def test_ports_verbose_echoes_the_command_once(fake_arduino_cli, recorded_calls,
 
 
 def test_stubs_writes_the_ide_stub(tmp_path, capsys):
-    target = tmp_path / "micropy_api.pyi"
+    target = tmp_path / "controllerpy_api.pyi"
     assert main(["stubs", "-o", str(target)]) == EXIT_OK
 
     api = StubAPI(target.read_text(encoding="utf-8"))
@@ -455,7 +455,7 @@ def test_stubs_writes_the_ide_stub(tmp_path, capsys):
     assert api.methods("Servo")["detach"] == "(self) -> None"
     assert api.methods("Servo")["write"] == "(self, angle: int) -> None"
     assert api.methods("Servo")["read"] == "(self) -> int"
-    assert "micropy_api import" in capsys.readouterr().out
+    assert "controllerpy_api import" in capsys.readouterr().out
 
 
 # `stubs` writes one file; every other -o takes a directory.  All three
@@ -469,7 +469,7 @@ def test_stubs_output_forms_all_write_that_exact_file(option, tmp_path):
     assert main(["stubs", option, str(target)]) == EXIT_OK
 
     assert target.is_file()
-    assert not (tmp_path / "micropy_api.pyi").exists()
+    assert not (tmp_path / "controllerpy_api.pyi").exists()
     assert "def pin_mode" in target.read_text(encoding="utf-8")
 
 
@@ -486,7 +486,7 @@ def test_stubs_output_defaults_to_the_api_stub_name(tmp_path, monkeypatch):
 
     assert main(["stubs"]) == EXIT_OK
 
-    assert (tmp_path / "micropy_api.pyi").is_file()
+    assert (tmp_path / "controllerpy_api.pyi").is_file()
 
 
 def test_stubs_overwrites_an_existing_file(tmp_path):
@@ -515,7 +515,7 @@ def test_stubs_rejects_an_existing_directory(option, tmp_path, capsys):
     assert code != EXIT_INTERNAL
     captured = capsys.readouterr()
     assert f"{target} is a directory, not a stub file." in captured.err
-    assert "micropy stubs -o micropy_api.pyi" in captured.err
+    assert "controllerpy stubs -o controllerpy_api.pyi" in captured.err
     assert "internal error" not in captured.err
     assert "Traceback" not in captured.err
     assert captured.out == ""
@@ -524,7 +524,7 @@ def test_stubs_rejects_an_existing_directory(option, tmp_path, capsys):
 
 def test_stubs_rejects_a_directory_at_the_default_path(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    Path("micropy_api.pyi").mkdir()
+    Path("controllerpy_api.pyi").mkdir()
 
     assert main(["stubs"]) == EXIT_USAGE
 
@@ -575,16 +575,16 @@ def test_every_other_command_keeps_output_dir(tmp_path, source, cli_help):
 def test_init_creates_the_ide_files(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == EXIT_OK
-    assert (tmp_path / "micropy_api.pyi").exists()
+    assert (tmp_path / "controllerpy_api.pyi").exists()
     assert (tmp_path / "pyrightconfig.json").exists()
     assert (tmp_path / "main.py").exists()
     out = capsys.readouterr().out
-    assert f"  {output.SUCCESS} Initialized Micropy project" in out
+    assert f"  {output.SUCCESS} Initialized ControllerPy project" in out
     created = out.split("Created:", 1)[1]
-    for name in ("micropy_api.pyi", "pyrightconfig.json", "main.py"):
+    for name in ("controllerpy_api.pyi", "pyrightconfig.json", "main.py"):
         assert f"    {name}" in created
-    assert "Your IDE is now configured for Micropy." in out
-    assert "micropy check main.py" in out
+    assert "Your IDE is now configured for ControllerPy." in out
+    assert "controllerpy check main.py" in out
 
 
 def test_init_writes_a_pyright_config_that_discovers_the_stub(tmp_path, monkeypatch):
@@ -594,16 +594,16 @@ def test_init_writes_a_pyright_config_that_discovers_the_stub(tmp_path, monkeypa
     assert "*.py" in config["include"]
     assert "." in config["extraPaths"]
     shim = (tmp_path / "main.py").read_text(encoding="utf-8")
-    assert "from micropy_api import *" in shim
+    assert "from controllerpy_api import *" in shim
 
 
 def test_init_does_not_overwrite_without_force(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    mine = tmp_path / "micropy_api.pyi"
+    mine = tmp_path / "controllerpy_api.pyi"
     mine.write_text("# my own stub\n", encoding="utf-8")
     assert main(["init"]) == EXIT_USAGE
     captured = capsys.readouterr()
-    assert "micropy_api.pyi already exists." in captured.err
+    assert "controllerpy_api.pyi already exists." in captured.err
     assert "Use --force to overwrite it." in captured.err
     assert mine.read_text(encoding="utf-8") == "# my own stub\n"
     assert not (tmp_path / "pyrightconfig.json").exists()
@@ -612,10 +612,10 @@ def test_init_does_not_overwrite_without_force(tmp_path, monkeypatch, capsys):
 def test_init_force_regenerates_the_ide_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == EXIT_OK
-    for name in ("micropy_api.pyi", "pyrightconfig.json", "main.py"):
+    for name in ("controllerpy_api.pyi", "pyrightconfig.json", "main.py"):
         (tmp_path / name).write_text("stale", encoding="utf-8")
     assert main(["init", "--force"]) == EXIT_OK
-    stub = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
+    stub = (tmp_path / "controllerpy_api.pyi").read_text(encoding="utf-8")
     assert "stale" not in stub
     # The whole file was replaced by the real API, so it parses and declares it.
     api = StubAPI(stub)
@@ -623,13 +623,13 @@ def test_init_force_regenerates_the_ide_files(tmp_path, monkeypatch):
     assert api.constants["OUTPUT"] == "int"
     assert {"String", "Servo"} <= set(api.classes)
     assert "extraPaths" in (tmp_path / "pyrightconfig.json").read_text(encoding="utf-8")
-    assert "from micropy_api import *" in (tmp_path / "main.py").read_text(encoding="utf-8")
+    assert "from controllerpy_api import *" in (tmp_path / "main.py").read_text(encoding="utf-8")
 
 
 def test_init_stub_lists_every_supported_api_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == EXIT_OK
-    api = StubAPI((tmp_path / "micropy_api.pyi").read_text(encoding="utf-8"))
+    api = StubAPI((tmp_path / "controllerpy_api.pyi").read_text(encoding="utf-8"))
     functions = [
         "pin_mode",
         "digital_write",
@@ -692,7 +692,7 @@ def test_init_and_stubs_copy_the_same_source_stub(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == EXIT_OK
     assert main(["stubs", "-o", "copy.pyi"]) == EXIT_OK
-    from_init = (tmp_path / "micropy_api.pyi").read_text(encoding="utf-8")
+    from_init = (tmp_path / "controllerpy_api.pyi").read_text(encoding="utf-8")
     from_stubs = (tmp_path / "copy.pyi").read_text(encoding="utf-8")
     assert from_init == from_stubs
 
@@ -714,12 +714,12 @@ def test_build_is_unaffected_by_the_ide_files(tmp_path, monkeypatch):
     assert main(["build", "main.py"]) == EXIT_OK
     ino = (tmp_path / "build" / "main.ino").read_text(encoding="utf-8")
     assert ino.startswith("const int LED = 13;\n")
-    assert "micropy_api" not in ino
+    assert "controllerpy_api" not in ino
 
 
 def test_check_does_not_require_the_api_import(source, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    assert "micropy_api" not in source.read_text(encoding="utf-8")
+    assert "controllerpy_api" not in source.read_text(encoding="utf-8")
     assert main(["check", "main.py"]) == EXIT_OK
     assert "main.py: OK" in capsys.readouterr().out
 
@@ -729,13 +729,13 @@ def test_check_and_build_accept_the_init_generated_header(tmp_path, monkeypatch)
     assert main(["init"]) == EXIT_OK
     header = (tmp_path / "main.py").read_text(encoding="utf-8")
     assert "from builtins import *" in header
-    assert "from micropy_api import *" in header
+    assert "from controllerpy_api import *" in header
     (tmp_path / "main.py").write_text(header + "\n" + PROGRAM, encoding="utf-8")
     assert main(["check", "main.py"]) == EXIT_OK
     assert main(["build", "main.py"]) == EXIT_OK
     ino = (tmp_path / "build" / "main.ino").read_text(encoding="utf-8")
     assert "const int LED = 13;" in ino
-    assert "micropy_api" not in ino
+    assert "controllerpy_api" not in ino
 
 
 def test_version_flag(capsys):
@@ -756,15 +756,15 @@ def test_init_force_says_what_it_replaced(tmp_path, monkeypatch, capsys):
     """--force is consent to overwrite, but not a reason to do it silently."""
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "micropy_api.pyi").write_text("# mine\n", encoding="utf-8")
+    (tmp_path / "controllerpy_api.pyi").write_text("# mine\n", encoding="utf-8")
 
     assert main(["init", "--force"]) == EXIT_OK
 
     captured = capsys.readouterr()
     assert captured.err.startswith(f"  {output.WARNING} ")
     assert "Overwriting" in captured.err
-    assert "micropy_api.pyi" in captured.err
-    assert "Initialized Micropy project" in captured.out
+    assert "controllerpy_api.pyi" in captured.err
+    assert "Initialized ControllerPy project" in captured.out
 
 
 def test_init_without_force_has_nothing_to_warn_about(tmp_path, monkeypatch, capsys):
@@ -805,23 +805,23 @@ def _fact_row(out: str, label: str) -> str:
 
 
 def test_the_top_level_help_leads_with_the_wordmark_and_the_tagline(capsys):
-    """The one screen that introduces micropy is also the one that is branded."""
+    """The one screen that introduces controllerpy is also the one that is branded."""
 
     with pytest.raises(SystemExit):
         main(["--help"])
 
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0].startswith("  MicroPy ")
+    assert lines[0].startswith("  ControllerPy ")
     assert __version__ in lines[0]
     assert lines[1].startswith("  Write Arduino programs")
-    assert lines[3].startswith("usage: micropy ")
+    assert lines[3].startswith("usage: controllerpy ")
 
 
 @pytest.mark.parametrize("command", COMMANDS)
 def test_no_subcommand_repeats_the_wordmark(command, cli_help):
     """A mark on the root screen is an introduction; on every command it is wallpaper."""
 
-    assert "MicroPy" not in cli_help(command)
+    assert "ControllerPy" not in cli_help(command)
 
 
 def test_the_wordmark_is_painted_on_a_terminal_but_not_in_a_pipe(terminal, monkeypatch):
@@ -830,13 +830,13 @@ def test_the_wordmark_is_painted_on_a_terminal_but_not_in_a_pipe(terminal, monke
         main(["--help"])
     painted = out.getvalue()
 
-    assert re.search(r"\033\[36;1mMicroPy\033\[0m", painted)
+    assert re.search(r"\033\[36;1mControllerPy\033\[0m", painted)
 
     plain, _ = terminal()
     monkeypatch.setenv("NO_COLOR", "1")
     with pytest.raises(SystemExit):
         main(["--help"])
-    assert plain.getvalue().splitlines()[0].startswith("  MicroPy ")
+    assert plain.getvalue().splitlines()[0].startswith("  ControllerPy ")
 
 
 @pytest.mark.parametrize("command", COMMANDS)
@@ -847,7 +847,7 @@ def test_every_command_has_help_that_exits_cleanly(command, capsys):
         main([command, "--help"])
 
     assert caught.value.code == 0
-    assert capsys.readouterr().out.startswith(f"usage: micropy {command} ")
+    assert capsys.readouterr().out.startswith(f"usage: controllerpy {command} ")
 
 
 def test_the_top_level_help_lists_every_command_and_says_how_to_learn_more(capsys):
@@ -860,14 +860,14 @@ def test_the_top_level_help_lists_every_command_and_says_how_to_learn_more(capsy
         assert re.search(rf"^\s+{command}\s+\S", out, re.MULTILINE), command
     assert "--debug" in out
     assert "examples:" in out
-    assert "micropy COMMAND --help" in out
+    assert "controllerpy COMMAND --help" in out
 
 
 @pytest.mark.parametrize("command", ["build", "check", "compile", "upload"])
 def test_a_command_that_takes_a_program_shows_a_way_to_run_it(command, cli_help):
     help_text = cli_help(command)
     assert "examples:" in help_text
-    assert f"micropy {command} main.py" in help_text
+    assert f"controllerpy {command} main.py" in help_text
 
 
 @pytest.mark.parametrize("command", COMMANDS)
@@ -879,7 +879,7 @@ def test_help_carries_no_escapes_when_the_output_is_not_a_terminal(command, cli_
 
 @pytest.mark.parametrize("command", [None, "build", "ports"])
 def test_no_color_silences_the_help_screen_itself(command, terminal, monkeypatch):
-    """Python 3.14's argparse paints help; micropy decides whether it may.
+    """Python 3.14's argparse paints help; controllerpy decides whether it may.
 
     Without this the help screen would be the one output ``NO_COLOR`` did not
     reach, because argparse applies its own rules rather than ours.
@@ -957,12 +957,12 @@ def test_every_command_documents_debug(command, capsys):
 
 @pytest.fixture
 def broken_compile(monkeypatch):
-    """Make the compiler fail with something that is not a MicropyError."""
+    """Make the compiler fail with something that is not a ControllerPyError."""
 
     def explode(*args, **kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("micropy.cli.commands.sketch.compile_file", explode)
+    monkeypatch.setattr("controllerpy.cli.commands.sketch.compile_file", explode)
 
 
 @pytest.mark.parametrize("argv", DEBUG_POSITIONS_IN_BUILD)
@@ -990,7 +990,7 @@ def test_without_debug_the_same_failure_stays_quiet(argv, source, tmp_path, monk
 
 
 def test_debug_re_raises_a_source_error_too(tmp_path, capsys):
-    """The MicropyError branch honours --debug as well."""
+    """The ControllerPyError branch honours --debug as well."""
 
     broken = tmp_path / "broken.py"
     broken.write_text("def main():\n    pass\n", encoding="utf-8")
@@ -1000,7 +1000,7 @@ def test_debug_re_raises_a_source_error_too(tmp_path, capsys):
         ["build", "--debug", str(broken)],
         ["build", str(broken), "--debug"],
     ):
-        with pytest.raises(MicropyError, match="Missing required function"):
+        with pytest.raises(ControllerPyError, match="Missing required function"):
             main(argv + ["-o", str(tmp_path / "build")])
 
     assert main(["build", str(broken), "-o", str(tmp_path / "build")]) == EXIT_COMPILE_ERROR

@@ -21,7 +21,7 @@ __all__ = [
     "unsupported_label",
 ]
 
-#: Python constructs that micropy knows about but deliberately does not support.
+#: Python constructs that controllerpy knows about but deliberately does not support.
 UNSUPPORTED_FEATURES: Dict[type, str] = {
     ast.AsyncFunctionDef: "async function",
     ast.Await: "await expression",

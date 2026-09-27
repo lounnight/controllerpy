@@ -1,12 +1,12 @@
-# micropy
+# controllerpy
 
-Write Arduino programs in a Python-like subset. `micropy` parses real Python
+Write Arduino programs in a Python-like subset. `controllerpy` parses real Python
 source with Python's `ast` module, validates it, and transpiles it into native
 Arduino C++ that you can read, review and commit. When you are happy with the
 result, it can compile and upload the sketch with `arduino-cli`.
 
-> `micropy` was previously called **ArduinoPy** - the compiler, the API and the
-> generated code are the same, only the name changed.
+> `controllerpy` was previously called **MicroPy** (and, before that, **ArduinoPy**) -
+> the compiler, the API and the generated code are the same, only the name changed.
 
 ```python
 # main.py
@@ -27,7 +27,7 @@ def loop():
 ```
 
 ```bash
-micropy build main.py
+controllerpy build main.py
 ```
 
 ```cpp
@@ -59,7 +59,7 @@ python3 -m venv .venv
 ```
 
 Only the standard library is required at runtime. `arduino-cli` is optional -
-it is needed for `micropy compile` and `micropy upload` only.
+it is needed for `controllerpy compile` and `controllerpy upload` only.
 
 If you prefer not to install anything, run the CLI from a checkout. `src/` is
 the package itself, so the module is started from the repository root:
@@ -71,22 +71,22 @@ python3 -m src build main.py
 ## Quick start
 
 ```bash
-micropy init                                  # IDE setup: micropy_api.pyi + pyrightconfig.json
-micropy build main.py                          # build/main.ino
-micropy check main.py                          # parse + validate only
-micropy clean                                  # remove generated files
-micropy compile main.py --board arduino:avr:uno
-micropy upload  main.py --board uno --port /dev/ttyACM0
-micropy ports                                  # which boards are attached?
-micropy boards                                 # which boards are supported?
-micropy stubs                                  # micropy_api.pyi only (legacy; prefer init)
+controllerpy init                                  # IDE setup: controllerpy_api.pyi + pyrightconfig.json
+controllerpy build main.py                          # build/main.ino
+controllerpy check main.py                          # parse + validate only
+controllerpy clean                                  # remove generated files
+controllerpy compile main.py --board arduino:avr:uno
+controllerpy upload  main.py --board uno --port /dev/ttyACM0
+controllerpy ports                                  # which boards are attached?
+controllerpy boards                                 # which boards are supported?
+controllerpy stubs                                  # controllerpy_api.pyi only (legacy; prefer init)
 ```
 
 ### Command reference
 
 | Command | What it does | Needs `arduino-cli` |
 | --- | --- | --- |
-| `init [-f/--force]` | writes `micropy_api.pyi`, `pyrightconfig.json` and `main.py` (see *IDE and type-checker support*) | no |
+| `init [-f/--force]` | writes `controllerpy_api.pyi`, `pyrightconfig.json` and `main.py` (see *IDE and type-checker support*) | no |
 | `build SOURCE` | transpiles to `<output>/<name>.ino` (default `build/`) | no |
 | `check SOURCE` | parses and validates, writes nothing | no |
 | `clean` | deletes `--output-dir` | no |
@@ -94,21 +94,21 @@ micropy stubs                                  # micropy_api.pyi only (legacy; p
 | `upload SOURCE --board B --port P` | `compile` + `arduino-cli upload` | yes |
 | `ports` | `arduino-cli board list` | yes |
 | `boards` | lists supported (and planned) boards | no |
-| `stubs` | writes `micropy_api.pyi` only (legacy; prefer `init`) | no |
+| `stubs` | writes `controllerpy_api.pyi` only (legacy; prefer `init`) | no |
 
 Common options: `-o/--output-dir`, `-b/--board` (FQBN or alias such as `uno`),
 `-v/--verbose`, `--arduino-cli PATH`, `--port`, `--debug`, `--version`. `--debug`
 is a global option and may be written before or after the command, so
-`micropy --debug build main.py`, `micropy build --debug main.py` and
-`micropy build main.py --debug` are the same thing.
+`controllerpy --debug build main.py`, `controllerpy build --debug main.py` and
+`controllerpy build main.py --debug` are the same thing.
 
 `-o` takes a **directory** for every command except `stubs`, which writes a
 single **file** and therefore spells its option `--output-file`:
 
 ```bash
-micropy build main.py -o out      # out/main.ino
-micropy stubs --output-file api/micropy_api.pyi   # api/micropy_api.pyi
-micropy stubs -o api.pyi          # the same, and still the same
+controllerpy build main.py -o out      # out/main.ino
+controllerpy stubs --output-file api/controllerpy_api.pyi   # api/controllerpy_api.pyi
+controllerpy stubs -o api.pyi          # the same, and still the same
 ```
 
 `stubs` keeps `-o` and `--output` as aliases of `--output-file`; the path is
@@ -133,7 +133,7 @@ than one thing to report ends in an aligned block of facts:
 | `✗` | it failed |
 
 ```bash
-$ micropy build main.py
+$ controllerpy build main.py
   → Compiling main.py
   ✓ Build complete
 
@@ -141,7 +141,7 @@ $ micropy build main.py
 ```
 
 ```bash
-$ micropy upload main.py --board uno -p /dev/ttyACM0
+$ controllerpy upload main.py --board uno -p /dev/ttyACM0
   → Compiling main.py for Arduino Uno
   → Uploading to /dev/ttyACM0
   ✓ Upload complete
@@ -171,7 +171,7 @@ shell would show it, with the tool's own output indented underneath.
 
 ```text
 build/
-├── main.ino          # exactly the generated C++ (micropy build)
+├── main.ino          # exactly the generated C++ (controllerpy build)
 ├── main/
 │   └── main.ino      # the same code as an Arduino sketch
 └── arduino/
@@ -180,7 +180,7 @@ build/
 
 ## Language reference
 
-`micropy` accepts a deliberately small, explicit subset of Python. Anything
+`controllerpy` accepts a deliberately small, explicit subset of Python. Anything
 outside it is reported as an error with a file, line and column - the compiler
 never silently skips code.
 
@@ -261,7 +261,7 @@ work without a `global` statement).
 
 ### Arduino API
 
-| micropy | Arduino C++ |
+| controllerpy | Arduino C++ |
 | --- | --- |
 | `pin_mode(pin, mode)` | `pinMode(pin, mode)` |
 | `digital_write(pin, value)` | `digitalWrite(pin, value)` |
@@ -337,7 +337,7 @@ constructed where they are declared.
 ### Arduino libraries
 
 ```python
-from micropy import Servo
+from controllerpy import Servo
 
 servo = Servo()
 
@@ -365,18 +365,18 @@ through untranslated.
 ### IDE and type-checker support
 
 ```bash
-micropy init              # writes micropy_api.pyi, pyrightconfig.json, main.py
-micropy init --force      # regenerate them
+controllerpy init              # writes controllerpy_api.pyi, pyrightconfig.json, main.py
+controllerpy init --force      # regenerate them
 ```
 
-`micropy init` is the recommended way to configure a project. It writes:
+`controllerpy init` is the recommended way to configure a project. It writes:
 
-* `micropy_api.pyi` - type stubs for `pin_mode`, `digital_write`, `OUTPUT`, ...
-  (the same file `micropy stubs` writes; IDE support only, it is never uploaded
-  to the board and `micropy` itself ignores it),
+* `controllerpy_api.pyi` - type stubs for `pin_mode`, `digital_write`, `OUTPUT`, ...
+  (the same file `controllerpy stubs` writes; IDE support only, it is never uploaded
+  to the board and `controllerpy` itself ignores it),
 * `pyrightconfig.json` - tells Pyright/Pylance where to find the stub,
 * `main.py` - re-exports the stub so the API is available in every
-  program **without** `from micropy_api import *`:
+  program **without** `from controllerpy_api import *`:
 
 ```python
 LED = 13
@@ -389,7 +389,7 @@ def loop():
     delay(1000)
 ```
 
-Older projects can keep using `micropy stubs` and the import line; both
+Older projects can keep using `controllerpy stubs` and the import line; both
 commands copy the same bundled stub, so new API names reach both.
 
 ## Errors
@@ -400,7 +400,7 @@ then what went wrong, then the advice, labelled `hint:` so its role is obvious
 before you read it:
 
 ```text
-  ✗ MicropyError
+  ✗ ControllerPyError
 
   main.py:8:5
   Unknown ArduinoPy function: foo()
@@ -416,7 +416,7 @@ before you read it:
 Other examples:
 
 ```text
-  ✗ MicropyError
+  ✗ ControllerPyError
 
   main.py:1:1
   Unsupported Python feature: async function
@@ -430,11 +430,11 @@ Other examples:
     hint: Check the path, or install the Arduino CLI:
       1. Install the Arduino CLI: https://arduino.github.io/arduino-cli/latest/installation/
       2. Install the AVR core for the Uno: arduino-cli core install arduino:avr
-      3. Or point micropy at an existing binary:
-           micropy compile main.py --arduino-cli /path/to/arduino-cli
-           (or set the MICROPY_ARDUINO_CLI environment variable)
+      3. Or point controllerpy at an existing binary:
+           controllerpy compile main.py --arduino-cli /path/to/arduino-cli
+           (or set the CONTROLLERPY_ARDUINO_CLI environment variable)
 
-      'micropy build' and 'micropy check' work without arduino-cli.
+      'controllerpy build' and 'controllerpy check' work without arduino-cli.
 ```
 
 Every word the error carries is printed: the title, the location, the message,
@@ -462,8 +462,8 @@ main.py
 Every stage is a separate module and can be used on its own:
 
 ```python
-from micropy import compile_source
-from micropy.compiler import Compiler
+from controllerpy import compile_source
+from controllerpy.compiler import Compiler
 
 result = compile_source(open("main.py").read(), filename="main.py")
 print(result.cpp)          # the generated C++
@@ -478,12 +478,12 @@ cpp = compiler.generate(context)       # stage 3
 ## Project layout
 
 ```text
-micropy/
+controllerpy/
 ├── pyproject.toml
 ├── main.py                     the acceptance example from the spec
 ├── compiler.py                 deprecated single-file prototype (kept)
 ├── examples/                   blink, button, loops, oop, serial
-├── src/                        the micropy package
+├── src/                        the controllerpy package
 │   ├── cli/                    the argparse front end
 │   │   ├── main.py               entry point: parse, dispatch, errors -> exit code
 │   │   ├── parser.py             every command, argument and option
@@ -497,7 +497,7 @@ micropy/
 │   │   └── utils.py              sketch naming, build/ layout
 │   ├── boards.py               board (FQBN) registry
 │   ├── arduino.py              arduino-cli integration
-│   ├── errors.py               MicropyError / ArduinoCliError
+│   ├── errors.py               ControllerPyError / ArduinoCliError
 │   ├── compiler/
 │   │   ├── parser.py           stage 1: source -> AST
 │   │   ├── validator/          stage 2: subset checks + symbol tables
@@ -523,11 +523,11 @@ micropy/
 └── tests/                      pytest suite + expected C++ snapshots
 ```
 
-`src/` *is* the `micropy` package: `pyproject.toml` maps the directory to the
-import name (`[tool.setuptools.package-dir] micropy = "src"`), so the sources
-stay flat and there is no nested `micropy/` directory to import through.
+`src/` *is* the `controllerpy` package: `pyproject.toml` maps the directory to the
+import name (`[tool.setuptools.package-dir] controllerpy = "src"`), so the sources
+stay flat and there is no nested `controllerpy/` directory to import through.
 
-Stage 2 is the only stage that knows what micropy is, so it carries the most
+Stage 2 is the only stage that knows what controllerpy is, so it carries the most
 detail. Its modules build on each other in one direction -
 `api`/`types`/`naming`/`libraries` describe the target, `symbols` records what
 was found, `context` holds the result for stage 3, and `validator` + `analyzer`
@@ -535,7 +535,7 @@ are the two phases that fill it in - which is why none of them import each
 other cyclically. The first group never imports `context` at all: it reports
 problems through the `ErrorReporter` it is handed (`CompileContext.error`), and
 `types` is passed the class names it has to resolve rather than the context to
-read them from. `micropy.compiler` re-exports `CompileContext` and `Validator`
+read them from. `controllerpy.compiler` re-exports `CompileContext` and `Validator`
 if you want to drive the stage yourself.
 
 Stage 3 is just as one-directional: `formatting` and `operators` hold the C++
@@ -546,7 +546,7 @@ in the only order that produces valid C++.
 
 The CLI is a thin front end over the three stages: `parser.py` defines what
 each command accepts, `commands/` decide *which* job to do (`compile_file` for
-a source, `micropy.arduino` for the toolchain), `output.py` renders the result
+a source, `controllerpy.arduino` for the toolchain), `output.py` renders the result
 and `main.py` turns it into an exit code. It never reaches into a stage's
 internals, and `commands/` never imports `main` or `parser`, so a command can
 be added in one module plus one line in `parser.py`.
@@ -564,7 +564,7 @@ commands without printing a thing - the handler reports, `output.py` renders.
   only ever emits portable Arduino code.
 * **New Arduino library**: add a `Library` to `LIBRARIES` in
   `compiler/validator/libraries.py` with its header and C++ type;
-  `from micropy import YourLibrary` then works.
+  `from controllerpy import YourLibrary` then works.
 * **New API function**: add an `ApiFunction` to `API_FUNCTIONS` in
   `compiler/validator/api.py` (Python name, C++ name, arity, return type) -
   validation, hints and code generation all read that table.
@@ -599,7 +599,7 @@ commands without printing a thing - the handler reports, `output.py` renders.
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
 .venv/bin/python -m pytest          # 432 tests, including C++ snapshots
-.venv/bin/micropy build main.py && cat build/main.ino
+.venv/bin/controllerpy build main.py && cat build/main.ino
 ```
 
 Tests compare generated C++ verbatim against the reviewed snapshots in

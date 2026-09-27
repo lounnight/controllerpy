@@ -1,4 +1,4 @@
-"""``python -m micropy`` entry point."""
+"""``python -m controllerpy`` entry point."""
 
 from .cli import main
 

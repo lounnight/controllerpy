@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from typing import Iterable, List, Optional, Protocol
 
-__all__ = ["MicropyError", "ArduinoCliError", "ArduinoPyError", "ErrorReporter"]
+__all__ = ["ControllerPyError", "ArduinoCliError", "ArduinoPyError", "ErrorReporter"]
 
 
 class ErrorReporter(Protocol):
@@ -19,8 +19,8 @@ class ErrorReporter(Protocol):
         """Raise for *message*, anchored at *node*.  Never returns."""
 
 
-class MicropyError(Exception):
-    title = "MicropyError"
+class ControllerPyError(Exception):
+    title = "ControllerPyError"
 
     def __init__(
         self,
@@ -71,11 +71,11 @@ class MicropyError(Exception):
         return self.format()
 
 
-#: Legacy name of :class:`MicropyError`, kept for the first prototype's API.
-ArduinoPyError = MicropyError
+#: Legacy name of :class:`ControllerPyError`, kept for the first prototype's API.
+ArduinoPyError = ControllerPyError
 
 
-class ArduinoCliError(MicropyError):
+class ArduinoCliError(ControllerPyError):
     """Raised when arduino-cli is missing or the toolchain call failed."""
 
     title = "ArduinoCliError"

@@ -3,7 +3,7 @@ requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "micropy"
+name = "controllerpy"
 version = "0.1.0"
 description = "Write Arduino programs in a Python-like subset and transpile them to C++"
 readme = "README.md"
@@ -25,16 +25,16 @@ dependencies = []
 dev = ["pytest>=9.1.1"]
 
 [project.scripts]
-micropy = "micropy.cli:main"
+controllerpy = "controllerpy.cli:main"
 
 [tool.setuptools]
-# ``src/`` *is* the micropy package: the directory is mapped to the import
+# ``src/`` *is* the controllerpy package: the directory is mapped to the import
 # name, so the sources stay flat and no nested package directory is needed.
-packages = ["micropy", "micropy.cli", "micropy.cli.commands", "micropy.compiler", "micropy.compiler.generator", "micropy.compiler.validator", "micropy.runtime"]
-package-dir = { micropy = "src" }
+packages = ["controllerpy", "controllerpy.cli", "controllerpy.cli.commands", "controllerpy.compiler", "controllerpy.compiler.generator", "controllerpy.compiler.validator", "controllerpy.runtime"]
+package-dir = { controllerpy = "src" }
 
 [tool.setuptools.package-data]
-micropy = ["runtime/*.pyi"]
+controllerpy = ["runtime/*.pyi"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

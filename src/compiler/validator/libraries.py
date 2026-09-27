@@ -1,6 +1,6 @@
-"""Registry that maps micropy imports to Arduino C++ libraries.
+"""Registry that maps controllerpy imports to Arduino C++ libraries.
 
-``from micropy import Servo`` emits ``#include <Servo.h>`` and makes ``Servo``
+``from controllerpy import Servo`` emits ``#include <Servo.h>`` and makes ``Servo``
 a known C++ type, e.g. ``servo = Servo()`` becomes ``Servo servo;``.  Only
 libraries that ship with the Arduino AVR core are listed; an API that is not
 described here is passed through unchanged (``servo.attach(9)``).
@@ -118,9 +118,9 @@ CORE_OBJECTS: FrozenSet[str] = frozenset(name for name, library in LIBRARIES.ite
 API_IMPORT_MODULES = frozenset(
     {
         "builtins",
-        "micropy",
-        "micropy.runtime",
-        "micropy_api",
+        "controllerpy",
+        "controllerpy.runtime",
+        "controllerpy_api",
         "arduinopy",
         "arduinopy.runtime",
         "arduino_py",

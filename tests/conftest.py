@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the micropy test-suite."""
+"""Shared pytest fixtures for the controllerpy test-suite."""
 
 from __future__ import annotations
 
@@ -23,23 +23,25 @@ class _Terminal(io.StringIO):
 
 
 def _load_source_package() -> None:
-    """Make ``src/`` importable as ``micropy`` so the suite runs without installing."""
+    """Make ``src/`` importable as ``controllerpy`` so the suite runs without installing."""
 
-    if importlib.util.find_spec("micropy") is not None:
+    if importlib.util.find_spec("controllerpy") is not None:
         return
     spec = importlib.util.spec_from_file_location(
-        "micropy", SRC / "__init__.py", submodule_search_locations=[str(SRC)]
+        "controllerpy", SRC / "__init__.py", submodule_search_locations=[str(SRC)]
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules["micropy"] = module
+    sys.modules["controllerpy"] = module
     spec.loader.exec_module(module)
 
 
 _load_source_package()
 
-from micropy.compiler import compile_source  # noqa: E402  (after the sys.path setup)
-from micropy.errors import MicropyError  # noqa: E402
+from controllerpy.compiler import (
+    compile_source,  # noqa: E402  (after the sys.path setup)
+)
+from controllerpy.errors import ControllerPyError  # noqa: E402
 
 EXPECTED_DIR = Path(__file__).resolve().parent / "expected"
 
@@ -108,7 +110,7 @@ def result() -> Callable[..., object]:
 
 
 @pytest.fixture
-def error() -> Callable[..., MicropyError]:
+def error() -> Callable[..., ControllerPyError]:
     """Assert that compiling a source string fails with a located error."""
 
     def expect(
@@ -118,10 +120,10 @@ def error() -> Callable[..., MicropyError]:
         hint: Optional[str] = None,
         line: Optional[int] = None,
         col: Optional[int] = None,
-    ) -> MicropyError:
+    ) -> ControllerPyError:
         try:
             compile_source(clean(source), filename="main.py")
-        except MicropyError as exc:
+        except ControllerPyError as exc:
             if message is not None:
                 assert message in exc.message, exc.format()
             if hint is not None:
@@ -131,7 +133,7 @@ def error() -> Callable[..., MicropyError]:
             if col is not None:
                 assert exc.col == col, exc.format()
             return exc
-        raise AssertionError(f"expected a MicropyError for:\n{clean(source)}")
+        raise AssertionError(f"expected a ControllerPyError for:\n{clean(source)}")
 
     return expect
 

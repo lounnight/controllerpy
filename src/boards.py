@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
-from .errors import MicropyError
+from .errors import ControllerPyError
 
 
 __all__ = [
@@ -58,12 +58,12 @@ def resolve_board(spec: Optional[str] = None) -> Board:
     
     planned = PLANNED_BOARDS.get(key.lower())
     if planned:
-        raise MicropyError(
+        raise ControllerPyError(
             f"Board '{key}' is not supported yet.",
-            hint="micropy currently generates code for the Arduino Uno.",
+            hint="controllerpy currently generates code for the Arduino Uno.",
             hint_lines=[f"planned target: {planned}"],
         )
-    raise MicropyError(
+    raise ControllerPyError(
         f"Unknown board: '{key}'.",
         hint="Supported boards:",
         hint_lines=[f"{b.alias} ({b.fqbn}) - {b.name}" for b in supported_boards()],

@@ -1,4 +1,4 @@
-"""The micropy compiler: parser, validator and C++ generator."""
+"""The controllerpy compiler: parser, validator and C++ generator."""
 
 from .compiler import CompileResult, Compiler, compile_file, compile_source
 from .generator import CodeWriter, CppGenerator

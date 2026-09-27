@@ -6,9 +6,9 @@ import ast
 
 import pytest
 
-from micropy.compiler import parse_source
-from micropy.errors import MicropyError
-from micropy.compiler.parser import SourceFile, parse_file
+from controllerpy.compiler import parse_source
+from controllerpy.errors import ControllerPyError
+from controllerpy.compiler.parser import SourceFile, parse_file
 
 SIMPLE = "LED = 13\n\ndef main():\n    pass\n\ndef loop():\n    pass\n"
 
@@ -42,7 +42,7 @@ def test_parse_source_uses_ast_constant_nodes_only():
 
 
 def test_syntax_error_is_reported_with_location():
-    with pytest.raises(MicropyError) as caught:
+    with pytest.raises(ControllerPyError) as caught:
         parse_source("def main(:\n    pass\n", "main.py")
     assert "Invalid Python syntax" in caught.value.message
     assert caught.value.filename == "main.py"
@@ -50,15 +50,15 @@ def test_syntax_error_is_reported_with_location():
     assert caught.value.col == 10
 
 
-def test_indentation_error_is_a_micropy_error():
-    with pytest.raises(MicropyError) as caught:
+def test_indentation_error_is_a_controllerpy_error():
+    with pytest.raises(ControllerPyError) as caught:
         parse_source("def main():\npass\n", "main.py")
     assert "Invalid Python syntax" in caught.value.message
     assert caught.value.line == 2
 
 
 def test_null_bytes_are_reported_cleanly():
-    with pytest.raises(MicropyError) as caught:
+    with pytest.raises(ControllerPyError) as caught:
         parse_source("x = 1\n\x00\n", "main.py")
     assert "main.py" in caught.value.format()
 
@@ -79,12 +79,12 @@ def test_parse_file_reads_from_disk(tmp_path):
 
 
 def test_parse_file_reports_missing_file():
-    with pytest.raises(MicropyError) as caught:
+    with pytest.raises(ControllerPyError) as caught:
         parse_file("does-not-exist.py")
     assert "Source file not found" in caught.value.message
 
 
 def test_parse_file_rejects_directories(tmp_path):
-    with pytest.raises(MicropyError) as caught:
+    with pytest.raises(ControllerPyError) as caught:
         parse_file(tmp_path)
     assert "is a directory" in caught.value.message

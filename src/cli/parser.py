@@ -1,4 +1,4 @@
-"""Every command, argument and option ``micropy`` accepts.
+"""Every command, argument and option ``controllerpy`` accepts.
 
 This is the only module that talks to :mod:`argparse`, so changing what a
 command takes - a new flag, a different default, better help text - is always a
@@ -36,7 +36,7 @@ from .style import paint, supports_colour
 
 __all__ = ["DEFAULT_OUTPUT_DIR", "DEBUG_HELP", "PROG", "build_parser"]
 
-PROG = "micropy"
+PROG = "controllerpy"
 DEFAULT_OUTPUT_DIR = "build"
 
 DEBUG_HELP = "show internal tracebacks (for bug reports)"
@@ -46,15 +46,15 @@ DESCRIPTION = "Write Arduino programs in a Python-like subset, and turn them int
 
 _EPILOG = """\
 examples:
-  micropy init                     set up IDE support here
-  micropy check main.py            parse and validate, write nothing
-  micropy build main.py            generate build/main.ino
-  micropy compile main.py -b uno   generate the sketch and compile it
-  micropy upload main.py -p PORT   compile it and flash it to a board
-  micropy boards                   list the boards that can be targeted
-  micropy ports                    list the boards connected to this computer
+  controllerpy init                     set up IDE support here
+  controllerpy check main.py            parse and validate, write nothing
+  controllerpy build main.py            generate build/main.ino
+  controllerpy compile main.py -b uno   generate the sketch and compile it
+  controllerpy upload main.py -p PORT   compile it and flash it to a board
+  controllerpy boards                   list the boards that can be targeted
+  controllerpy ports                    list the boards connected to this computer
 
-'build' and 'check' work without arduino-cli.  Run 'micropy COMMAND --help'
+'build' and 'check' work without arduino-cli.  Run 'controllerpy COMMAND --help'
 for one command's own options.
 """
 
@@ -79,27 +79,27 @@ class _RootParser(argparse.ArgumentParser):
 
 
 def _brand() -> str:
-    return f"  {paint('MicroPy', 'cyan', 'bold')} {paint(__version__, 'dim')}\n  {DESCRIPTION}\n\n"
+    return f"  {paint('ControllerPy', 'cyan', 'bold')} {paint(__version__, 'dim')}\n  {DESCRIPTION}\n\n"
 
 _EPILOGS: Dict[str, str] = {
     "init": "examples:\n"
-    "  micropy init              write micropy_api.pyi and pyrightconfig.json\n"
-    "  micropy init --force      rewrite them, overwriting what is already there",
+    "  controllerpy init              write controllerpy_api.pyi and pyrightconfig.json\n"
+    "  controllerpy init --force      rewrite them, overwriting what is already there",
     "build": "examples:\n"
-    "  micropy build main.py\n"
-    "  micropy build main.py -o out -v  write to out/, and say what it contains",
+    "  controllerpy build main.py\n"
+    "  controllerpy build main.py -o out -v  write to out/, and say what it contains",
     "check": "examples:\n"
-    "  micropy check main.py\n"
-    "  micropy check main.py -v  also say what the program contains",
-    "clean": "examples:\n  micropy clean\n  micropy clean -o out",
+    "  controllerpy check main.py\n"
+    "  controllerpy check main.py -v  also say what the program contains",
+    "clean": "examples:\n  controllerpy clean\n  controllerpy clean -o out",
     "compile": "examples:\n"
-    "  micropy compile main.py\n"
-    "  micropy compile main.py -b uno -v",
+    "  controllerpy compile main.py\n"
+    "  controllerpy compile main.py -b uno -v",
     "upload": "examples:\n"
-    "  micropy upload main.py -p /dev/ttyACM0\n"
-    "  micropy upload main.py -b uno -p COM3",
-    "ports": "examples:\n  micropy ports\n  micropy ports -v",
-    "stubs": "examples:\n" f"  micropy stubs\n  micropy stubs -o {STUB_NAME}",
+    "  controllerpy upload main.py -p /dev/ttyACM0\n"
+    "  controllerpy upload main.py -b uno -p COM3",
+    "ports": "examples:\n  controllerpy ports\n  controllerpy ports -v",
+    "stubs": "examples:\n" f"  controllerpy stubs\n  controllerpy stubs -o {STUB_NAME}",
 }
 
 def _shared_options() -> argparse.ArgumentParser:
@@ -127,7 +127,7 @@ def _add_source_command(
     arduino_cli: bool = False,
 ) -> argparse.ArgumentParser:
     parser = _add_command(subparsers, name, help=help_text)
-    parser.add_argument("source", help="micropy program, e.g. main.py")
+    parser.add_argument("source", help="controllerpy program, e.g. main.py")
     parser.add_argument(
         "-o", "--output-dir", default=DEFAULT_OUTPUT_DIR, help=f"output directory (default: {DEFAULT_OUTPUT_DIR})"
     )

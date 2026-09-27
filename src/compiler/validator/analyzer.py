@@ -19,7 +19,7 @@ from __future__ import annotations
 import ast
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from ...errors import MicropyError
+from ...errors import ControllerPyError
 from .api import API_FUNCTIONS, ARDUINO_CONSTANTS, ARDUINO_OBJECTS, BUILTIN_FUNCTIONS, PYTHON_BUILTIN_HINTS
 from .ast_utils import augassign_label, constant_int, is_docstring, iter_statements, target_names, unsupported_label
 from .context import CompileContext
@@ -832,7 +832,7 @@ class BodyAnalyzer(ast.NodeVisitor):
             self.ctx.error(
                 node,
                 f"'{base.id}' is not an array, so it cannot be indexed.",
-                hint="Only list literals become arrays in micropy.",
+                hint="Only list literals become arrays in controllerpy.",
             )
             return UNKNOWN_TYPE
         index_type = self._type(node.slice)
@@ -1022,7 +1022,7 @@ class BodyAnalyzer(ast.NodeVisitor):
         self.scope, self.owner, self.class_info, self.entry_name = scope, owner, class_info, None
         try:
             return self._type(node)
-        except MicropyError:
+        except ControllerPyError:
             return UNKNOWN_TYPE
         finally:
             self.scope, self.owner, self.class_info, self.entry_name = previous
@@ -1047,7 +1047,7 @@ class BodyAnalyzer(ast.NodeVisitor):
 
         try:
             return self._type(node)
-        except MicropyError:
+        except ControllerPyError:
             return UNKNOWN_TYPE
 
     def _rebuild_scope(self, owner: object, class_info: Optional[ClassInfo]) -> Scope:

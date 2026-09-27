@@ -1,5 +1,5 @@
 from builtins import *
-from micropy_api import *
+from controllerpy_api import *
 
 LED = 13
 BUTTON = 7

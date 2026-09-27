@@ -1,8 +1,8 @@
-"""micropy - write Arduino programs in a Python-like subset.
+"""controllerpy - write Arduino programs in a Python-like subset.
 
 Example::
 
-    from micropy import compile_source
+    from controllerpy import compile_source
 
     result = compile_source("def main():\n    pin_mode(13, OUTPUT)\n\ndef loop():\n    pass\n")
     print(result.cpp)
@@ -10,7 +10,7 @@ Example::
 
 from .boards import DEFAULT_BOARD, Board, resolve_board, supported_boards
 from .compiler import CompileResult, Compiler, compile_file, compile_source
-from .errors import ArduinoCliError, ArduinoPyError, MicropyError
+from .errors import ArduinoCliError, ArduinoPyError, ControllerPyError
 
 __version__ = "0.1.0"
 
@@ -21,7 +21,7 @@ __all__ = [
     "Board",
     "CompileResult",
     "Compiler",
-    "MicropyError",
+    "ControllerPyError",
     "compile_file",
     "compile_source",
     "resolve_board",

@@ -1,6 +1,6 @@
 """Runtime helpers shipped for IDE/type-checker support.
 
-``api.pyi`` describes the micropy API; it is never uploaded to the Arduino and
+``api.pyi`` describes the controllerpy API; it is never uploaded to the Arduino and
 never imported at compile time.
 """
 

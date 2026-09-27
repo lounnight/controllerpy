@@ -13,9 +13,9 @@ import re
 import sys
 from pathlib import Path
 
-from micropy.boards import DEFAULT_BOARD, PLANNED_BOARDS, Board, supported_boards
-from micropy.cli import main, output
-from micropy.errors import ArduinoCliError, MicropyError
+from controllerpy.boards import DEFAULT_BOARD, PLANNED_BOARDS, Board, supported_boards
+from controllerpy.cli import main, output
+from controllerpy.errors import ArduinoCliError, ControllerPyError
 
 ANSI = re.compile(r"\033\[[0-9;]*m")
 
@@ -60,10 +60,10 @@ def test_an_error_is_marked_and_goes_to_stderr(capsys):
 
 
 def test_an_error_may_carry_the_one_thing_that_fixes_it(capsys):
-    output.report_error("Upload needs a serial port.", hint="Run 'micropy ports'.")
+    output.report_error("Upload needs a serial port.", hint="Run 'controllerpy ports'.")
     lines = capsys.readouterr().err.splitlines()
     assert lines[0] == f"  {output.FAILURE} Upload needs a serial port."
-    assert lines[1] == f"{DETAIL_INDENT}hint: Run 'micropy ports'."
+    assert lines[1] == f"{DETAIL_INDENT}hint: Run 'controllerpy ports'."
 
 
 def test_each_symbol_means_one_thing():
@@ -79,7 +79,7 @@ def test_each_symbol_means_one_thing():
 def test_an_exception_keeps_every_word_of_the_error(capsys):
     """Prettier, never shorter: nothing the error knows may be dropped."""
 
-    exc = MicropyError(
+    exc = ControllerPyError(
         "Unknown ArduinoPy function: foo()",
         filename="main.py",
         line=8,
@@ -90,7 +90,7 @@ def test_an_exception_keeps_every_word_of_the_error(capsys):
     output.report_exception(exc)
     err = capsys.readouterr().err
 
-    assert err.splitlines()[0] == f"  {output.FAILURE} MicropyError"
+    assert err.splitlines()[0] == f"  {output.FAILURE} ControllerPyError"
     assert "main.py:8:5" in err
     assert "Unknown ArduinoPy function: foo()" in err
     assert "Supported Arduino functions include:" in err
@@ -101,10 +101,10 @@ def test_an_exception_keeps_every_word_of_the_error(capsys):
 def test_a_hint_is_labelled_and_its_lines_sit_under_it(capsys):
     """Advice is set apart from the message by a label and a deeper indent."""
 
-    exc = MicropyError(
+    exc = ControllerPyError(
         "arduino-cli was not found.",
         hint="Check the path, or install the Arduino CLI:",
-        hint_lines=["1. Install it", "2. Point micropy at it"],
+        hint_lines=["1. Install it", "2. Point controllerpy at it"],
     )
     output.report_exception(exc)
     lines = capsys.readouterr().err.splitlines()
@@ -118,16 +118,16 @@ def test_a_hint_is_labelled_and_its_lines_sit_under_it(capsys):
 def test_the_headline_comes_before_the_explanation(capsys):
     """The failure has to be findable without reading the rest of the block."""
 
-    exc = MicropyError("Missing required function: loop()", filename="main.py", line=1)
+    exc = ControllerPyError("Missing required function: loop()", filename="main.py", line=1)
     output.report_exception(exc)
     err = capsys.readouterr().err
 
-    assert err.index("MicropyError") < err.index("Missing required function")
+    assert err.index("ControllerPyError") < err.index("Missing required function")
     assert err.index("main.py:1") < err.index("Missing required function")
 
 
 def test_the_location_gets_a_line_of_its_own(capsys):
-    exc = MicropyError("boom", filename="main.py", line=12, col=5)
+    exc = ControllerPyError("boom", filename="main.py", line=12, col=5)
     output.report_exception(exc)
     lines = capsys.readouterr().err.splitlines()
     location = next(line for line in lines if "main.py:12:5" in line)
@@ -160,12 +160,12 @@ def test_a_toolchain_failure_keeps_the_tool_output(capsys):
 
 
 def test_conflicts_name_each_file_and_give_advice_once(capsys):
-    output.report_conflicts([Path("micropy_api.pyi"), Path("main.py")])
+    output.report_conflicts([Path("controllerpy_api.pyi"), Path("main.py")])
     lines = capsys.readouterr().err.splitlines()
 
     failures = [line for line in lines if line.startswith(STATUS_INDENT + output.FAILURE)]
     assert failures == [
-        f"  {output.FAILURE} micropy_api.pyi already exists.",
+        f"  {output.FAILURE} controllerpy_api.pyi already exists.",
         f"  {output.FAILURE} main.py already exists.",
     ]
     # One piece of advice, and it agrees with the number of files.
@@ -173,7 +173,7 @@ def test_conflicts_name_each_file_and_give_advice_once(capsys):
 
 
 def test_one_conflict_is_referred_to_in_the_singular(capsys):
-    output.report_conflicts([Path("micropy_api.pyi")])
+    output.report_conflicts([Path("controllerpy_api.pyi")])
     assert f"{DETAIL_INDENT}hint: Use --force to overwrite it." in capsys.readouterr().err
 
 
@@ -271,11 +271,11 @@ def test_having_nothing_to_clean_is_quiet_but_says_why(capsys):
 
 # ----------------------------------------------------------------- the project
 def test_the_created_block_lists_every_file_written(capsys):
-    output.report_written_files([Path("micropy_api.pyi"), Path("pyrightconfig.json")])
+    output.report_written_files([Path("controllerpy_api.pyi"), Path("pyrightconfig.json")])
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == ""
     assert "Created:" in lines[1]
-    assert f"{DETAIL_INDENT}micropy_api.pyi" in lines
+    assert f"{DETAIL_INDENT}controllerpy_api.pyi" in lines
     assert f"{DETAIL_INDENT}pyrightconfig.json" in lines
     # A list of files is not three finished operations: no ✓ per row.
     assert output.SUCCESS not in "\n".join(lines)
@@ -426,7 +426,7 @@ def test_a_failure_is_painted_only_on_the_stream_that_is_a_terminal(tmp_path, te
     err = pipe.getvalue()
     assert "\033[" in out.getvalue()
     assert "\033[" not in err
-    assert err.splitlines()[0] == f"  {output.FAILURE} MicropyError"
+    assert err.splitlines()[0] == f"  {output.FAILURE} ControllerPyError"
     assert "Missing required function: loop()" in err
 
 

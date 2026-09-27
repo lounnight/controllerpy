@@ -2,7 +2,7 @@
 
 ``init`` and ``stubs`` write the IDE/type-checker files, and they own the
 templates they write so a new API name only has to be added to
-``micropy.runtime.api``.  ``boards`` reports the board registry and needs no
+``controllerpy.runtime.api``.  ``boards`` reports the board registry and needs no
 compiler and no toolchain.
 
 Both writers share the same promise: a file is only replaced when the user asked
@@ -30,23 +30,23 @@ from ..utils import write_api_stub
 
 __all__ = ["cmd_boards", "cmd_init", "cmd_stubs"]
 
-STUB_NAME = "micropy_api.pyi"
+STUB_NAME = "controllerpy_api.pyi"
 PYRIGHT_CONFIG_NAME = "pyrightconfig.json"
 BUILTINS_STUB_NAME = "main.py"
 
 PYRIGHT_CONFIG_JSON = '{\n  "include": ["*.py"],\n  "extraPaths": ["."]\n}'
 
-_STUB_TARGET_HINT = f"Pass a file name, for example: micropy stubs -o {STUB_NAME}"
+_STUB_TARGET_HINT = f"Pass a file name, for example: controllerpy stubs -o {STUB_NAME}"
 
 _NEXT_STEPS = (
-    (f"micropy check {BUILTINS_STUB_NAME}", "parse and validate, write nothing"),
-    (f"micropy upload {BUILTINS_STUB_NAME} -p PORT", "compile it and flash it to a board"),
+    (f"controllerpy check {BUILTINS_STUB_NAME}", "parse and validate, write nothing"),
+    (f"controllerpy upload {BUILTINS_STUB_NAME} -p PORT", "compile it and flash it to a board"),
 )
 
 def _next_steps() -> str:
     width = max(len(command) for command, _ in _NEXT_STEPS)
 
-    return "Your IDE is now configured for Micropy.\n" + "\n".join(
+    return "Your IDE is now configured for ControllerPy.\n" + "\n".join(
         f"  {command.ljust(width + 2)}{description}" for command, description in _NEXT_STEPS
     )
 
@@ -54,7 +54,7 @@ BUILTINS_STUB = (
     "# Write your arduino code here\n"
     "# Please don't clear the imports, for ide config\n"
     "from builtins import *\n"
-    "from micropy_api import *\n\n"
+    "from controllerpy_api import *\n\n"
     "def main():\n  pass\n\n"
     "def loop():\n  pass\n"
 )
@@ -75,7 +75,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     config.write_text(PYRIGHT_CONFIG_JSON, encoding="utf-8")
     builtins_stub.write_text(BUILTINS_STUB, encoding="utf-8")
 
-    report_success("Initialized Micropy project")
+    report_success("Initialized ControllerPy project")
     report_written_files((stub, config, builtins_stub))
     report_detail(_next_steps())
 
@@ -92,7 +92,7 @@ def cmd_stubs(args: argparse.Namespace) -> int:
 
     write_api_stub(target)
     report_success(f"Wrote {target}")
-    report_detail("Add 'from micropy_api import *' to your program for IDE autocompletion.")
+    report_detail("Add 'from controllerpy_api import *' to your program for IDE autocompletion.")
 
     return EXIT_OK
 

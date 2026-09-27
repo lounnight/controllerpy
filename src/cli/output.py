@@ -1,4 +1,4 @@
-"""How the CLI looks: every symbol, colour and line ``micropy`` prints.
+"""How the CLI looks: every symbol, colour and line ``controllerpy`` prints.
 
 Handlers decide *what* happened; the ``report_*`` functions here decide how it is
 rendered.  The whole vocabulary rests on four ideas, so that a transcript reads
@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence, Tuple, Union
 
 from ..boards import Board
-from ..errors import MicropyError
+from ..errors import ControllerPyError
 from .style import paint
 
 __all__ = [
@@ -163,7 +163,7 @@ def report_error(message: str, *, hint: Optional[str] = None) -> None:
 
 
 # errors
-def report_exception(exc: MicropyError) -> None:
+def report_exception(exc: ControllerPyError) -> None:
     _failure(exc.title)
     print(file=sys.stderr)
 

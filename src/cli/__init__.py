@@ -1,18 +1,18 @@
-"""The ``micropy`` command line interface.
+"""The ``controllerpy`` command line interface.
 
 An ``argparse`` front end that turns one of the commands below into a pipeline
 run and its result into text on stdout, an exit code, or a clean error message.
-It only ever calls the public facades - :func:`micropy.compile_file` for stage 1
-to stage 3, :mod:`micropy.boards` for the target, :mod:`micropy.arduino` for the
+It only ever calls the public facades - :func:`controllerpy.compile_file` for stage 1
+to stage 3, :mod:`controllerpy.boards` for the target, :mod:`controllerpy.arduino` for the
 toolchain - and never inspects a stage's internals.
 
-    micropy init [--force]                    write the IDE configuration files
-    micropy build main.py                     generate build/main.ino
-    micropy check main.py                     parse and validate only
-    micropy clean                             remove generated files
-    micropy compile main.py --board uno       compile with arduino-cli
-    micropy upload main.py --board uno --port /dev/ttyACM0
-    micropy ports | boards | stubs
+    controllerpy init [--force]                    write the IDE configuration files
+    controllerpy build main.py                     generate build/main.ino
+    controllerpy check main.py                     parse and validate only
+    controllerpy clean                             remove generated files
+    controllerpy compile main.py --board uno       compile with arduino-cli
+    controllerpy upload main.py --board uno --port /dev/ttyACM0
+    controllerpy ports | boards | stubs
 
 Where to change what:
 
@@ -39,5 +39,5 @@ from .parser import build_parser
 from .utils import sketch_name
 
 #: ``EXIT_OK`` & friends stay importable from here: they are part of the
-#: documented exit-code contract (``micropy`` itself only uses ``EXIT_CODES``).
+#: documented exit-code contract (``controllerpy`` itself only uses ``EXIT_CODES``).
 __all__ = ["EXIT_CODES", "build_parser", "main", "sketch_name"]

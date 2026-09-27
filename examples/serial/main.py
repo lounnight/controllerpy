@@ -1,5 +1,5 @@
 from builtins import *
-from micropy_api import *
+from controllerpy_api import *
 BAUD = 9600
 
 def read_sensor():

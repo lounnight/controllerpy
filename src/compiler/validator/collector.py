@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 from typing import Dict, List, Optional, Sequence, Set
 
-from ...errors import MicropyError
+from ...errors import ControllerPyError
 from .analyzer import RETYPE_PASSES, BodyAnalyzer
 from .api import API_FUNCTIONS, ARDUINO_CONSTANTS, ARDUINO_OBJECTS, BUILTIN_FUNCTIONS
 from .ast_utils import is_docstring, unsupported_label
@@ -120,7 +120,7 @@ class Validator:
                 if not self.ctx.register_api_import(alias.name):
                     self.ctx.error(
                         node,
-                        f"'{alias.name}' is not part of the micropy API.",
+                        f"'{alias.name}' is not part of the controllerpy API.",
                         hint="Known names:",
                         hint_lines=sorted(API_FUNCTIONS) + sorted(supported_libraries()),
                     )
@@ -139,8 +139,8 @@ class Validator:
             node,
             f"Python library '{name}' is not supported on Arduino.",
             hint="Arduino libraries you can import:",
-            hint_lines=[f"from micropy import {lib}" for lib in sorted(supported_libraries())]
-            + ["from micropy import *  (IDE/type-checker support only)"],
+            hint_lines=[f"from controllerpy import {lib}" for lib in sorted(supported_libraries())]
+            + ["from controllerpy import *  (IDE/type-checker support only)"],
         )
 
     # functions
@@ -391,18 +391,18 @@ class Validator:
     # ----------------------------------------------------- phase C: finalize
     def _check_entry_points(self) -> None:
         hint_lines = ["def main():   # becomes void setup()", "def loop():   # becomes void loop()"]
-        hint = "A micropy program defines both entry points:"
+        hint = "A controllerpy program defines both entry points:"
         if self.ctx.setup_node is None:
-            raise MicropyError(
+            raise ControllerPyError(
                 "Missing required function: main()", filename=self.ctx.filename, hint=hint, hint_lines=hint_lines
             )
         if self.ctx.loop_node is None:
-            raise MicropyError(
+            raise ControllerPyError(
                 "Missing required function: loop()", filename=self.ctx.filename, hint=hint, hint_lines=hint_lines
             )
 
     def _var_error(self, var: VarInfo, message: str, *, hint: Optional[str] = None) -> None:
-        raise MicropyError(
+        raise ControllerPyError(
             message,
             filename=self.ctx.filename,
             line=var.lineno,

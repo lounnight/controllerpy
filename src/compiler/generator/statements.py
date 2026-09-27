@@ -192,7 +192,7 @@ class StatementEmitter:
         for index, value in enumerate(value_elements):
             inferred = self.exprs.type_of(value)
             cpp_type = "int" if inferred in (UNKNOWN_TYPE, "void") else inferred
-            temporary = f"micropy_tmp{index}"
+            temporary = f"controllerpy_tmp{index}"
             self.w.line(f"{cpp_type} {temporary} = {self.exprs.value(value)};")
             temporaries.append(temporary)
         for target, temporary in zip(target_elements, temporaries):

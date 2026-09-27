@@ -1,4 +1,4 @@
-"""The Arduino API micropy exposes to programs.
+"""The Arduino API controllerpy exposes to programs.
 
 These tables are the single description of the *Arduino* side of the language:
 which Python helper functions exist, what they map to in C++, which constants
@@ -56,7 +56,7 @@ ARDUINO_OBJECTS = CORE_OBJECTS | {"Serial"}
 
 @dataclass(frozen=True)
 class ApiFunction:
-    """A micropy helper function and the C++ call it maps to."""
+    """A controllerpy helper function and the C++ call it maps to."""
 
     py_name: str
     cpp_name: str

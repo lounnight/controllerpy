@@ -60,7 +60,7 @@ def check_reserved_variable(report: ErrorReporter, node: ast.AST, name: str) -> 
 
     The only thing this rule needs is something that can raise against a node,
     so the caller hands in its reporter (``CompileContext.error``) instead of
-    the whole context - see :class:`~micropy.errors.ErrorReporter`.
+    the whole context - see :class:`~controllerpy.errors.ErrorReporter`.
     """
 
     if name in ARDUINO_OBJECTS or name in ARDUINO_CONSTANTS:

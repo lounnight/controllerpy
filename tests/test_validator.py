@@ -9,9 +9,9 @@ from typing import get_type_hints
 
 import pytest
 
-import micropy.compiler.validator as validator
-from micropy.compiler.validator.libraries import LIBRARIES, ApiClass, ApiMethod, Library, library_for, supported_libraries
-from micropy.compiler.validator.types import SCALAR_TYPES
+import controllerpy.compiler.validator as validator
+from controllerpy.compiler.validator.libraries import LIBRARIES, ApiClass, ApiMethod, Library, library_for, supported_libraries
+from controllerpy.compiler.validator.types import SCALAR_TYPES
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
 
@@ -324,7 +324,7 @@ def test_python_library_is_rejected_with_a_clear_message(error):
     error(
         "import requests\n" + SHELL,
         message="Python library 'requests' is not supported on Arduino.",
-        hint="from micropy import",
+        hint="from controllerpy import",
         line=1,
         col=1,
     )
@@ -335,32 +335,32 @@ def test_from_import_of_a_python_library_is_rejected(error):
 
 
 def test_known_arduino_library_import_is_accepted(result):
-    compiled = result("from micropy import Servo\n" + SHELL)
+    compiled = result("from controllerpy import Servo\n" + SHELL)
     assert "Servo.h" in compiled.context.includes
     assert compiled.context.external_types["Servo"] == "Servo"
 
 
 def test_api_star_import_is_accepted_for_ide_support(result):
-    compiled = result("from micropy import *\nimport micropy\n" + SHELL)
+    compiled = result("from controllerpy import *\nimport controllerpy\n" + SHELL)
     assert compiled.context.includes == []
 
 
 def test_unknown_name_from_api_import_is_rejected(error):
     error(
-        "from micropy import teleport\n" + SHELL,
-        message="'teleport' is not part of the micropy API.",
+        "from controllerpy import teleport\n" + SHELL,
+        message="'teleport' is not part of the controllerpy API.",
     )
 
 
 def test_ide_only_module_imports_are_skipped(result):
     compiled = result(
-        "import builtins\nfrom builtins import *\nimport micropy_api\nfrom micropy_api import *\n" + SHELL
+        "import builtins\nfrom builtins import *\nimport controllerpy_api\nfrom controllerpy_api import *\n" + SHELL
     )
     assert compiled.context.includes == []
 
 
 def test_named_import_from_the_api_stub_is_accepted(result):
-    compiled = result("from micropy_api import HIGH, pin_mode\n" + SHELL)
+    compiled = result("from controllerpy_api import HIGH, pin_mode\n" + SHELL)
     assert compiled.context.includes == []
 
 
@@ -368,7 +368,7 @@ def test_named_import_from_the_api_stub_is_accepted(result):
 @pytest.mark.parametrize("name", LIBRARY_NAMES)
 def test_every_registered_library_is_importable_from_the_api_module(result, name):
     library = library_for(name)
-    compiled = result(f"from micropy import {name}\n" + SHELL)
+    compiled = result(f"from controllerpy import {name}\n" + SHELL)
 
     assert compiled.context.imported_libraries[name] is library
     assert compiled.context.includes == [library.header]
@@ -408,8 +408,8 @@ def test_importing_a_library_by_its_module_name_is_rejected(error):
 
 def test_a_name_that_is_not_a_registered_library_is_rejected(error):
     error(
-        "from micropy import Widget\n" + SHELL,
-        message="'Widget' is not part of the micropy API.",
+        "from controllerpy import Widget\n" + SHELL,
+        message="'Widget' is not part of the controllerpy API.",
     )
 
 
@@ -417,11 +417,11 @@ def test_the_unsupported_library_hint_lists_the_registered_libraries(error):
     exc = error("import requests\n" + SHELL, message="not supported on Arduino")
 
     for name in LIBRARY_NAMES:
-        assert f"from micropy import {name}" in exc.hint_lines
+        assert f"from controllerpy import {name}" in exc.hint_lines
 
 
 def test_the_unknown_api_name_hint_lists_the_registered_libraries(error):
-    exc = error("from micropy import Widget\n" + SHELL)
+    exc = error("from controllerpy import Widget\n" + SHELL)
 
     for name in LIBRARY_NAMES:
         assert name in exc.hint_lines
@@ -429,7 +429,7 @@ def test_the_unknown_api_name_hint_lists_the_registered_libraries(error):
 
 # --------------------------------------------- library class constructors
 def test_servo_is_created_with_the_registered_constructor(result):
-    compiled = result("from micropy import Servo\n\nservo = Servo()\n" + SHELL)
+    compiled = result("from controllerpy import Servo\n\nservo = Servo()\n" + SHELL)
 
     assert compiled.context.globals["servo"].cpp_type == "Servo"
     assert "Servo servo;" in compiled.cpp
@@ -437,7 +437,7 @@ def test_servo_is_created_with_the_registered_constructor(result):
 
 def test_servo_constructor_rejects_an_argument(error):
     error(
-        "from micropy import Servo\n\nservo = Servo(9)\n" + SHELL,
+        "from controllerpy import Servo\n\nservo = Servo(9)\n" + SHELL,
         message="Servo() takes exactly 0 arguments but 1 was given.",
         line=3,
         col=9,
@@ -446,7 +446,7 @@ def test_servo_constructor_rejects_an_argument(error):
 
 def test_servo_constructor_rejects_several_arguments(error):
     error(
-        "from micropy import Servo\n\nservo = Servo(9, 8)\n" + SHELL,
+        "from controllerpy import Servo\n\nservo = Servo(9, 8)\n" + SHELL,
         message="Servo() takes exactly 0 arguments but 2 were given.",
     )
 
@@ -484,7 +484,7 @@ def registered_library(monkeypatch) -> Library:
 
 
 def test_a_registered_constructor_takes_the_arguments_it_declares(result, registered_library):
-    compiled = result("from micropy import Widget\n\nw = Widget(3)\n" + SHELL)
+    compiled = result("from controllerpy import Widget\n\nw = Widget(3)\n" + SHELL)
 
     assert compiled.context.globals["w"].cpp_type == "Widget"
     assert "Widget w(3);" in compiled.cpp
@@ -492,29 +492,29 @@ def test_a_registered_constructor_takes_the_arguments_it_declares(result, regist
 
 def test_a_registered_constructor_rejects_too_few_arguments(error, registered_library):
     error(
-        "from micropy import Widget\n\nw = Widget()\n" + SHELL,
+        "from controllerpy import Widget\n\nw = Widget()\n" + SHELL,
         message="Widget() takes 1 to 2 arguments but 0 were given.",
     )
 
 
 def test_a_registered_constructor_rejects_too_many_arguments(error, registered_library):
     error(
-        "from micropy import Widget\n\nw = Widget(1, 2, 3)\n" + SHELL,
+        "from controllerpy import Widget\n\nw = Widget(1, 2, 3)\n" + SHELL,
         message="Widget() takes 1 to 2 arguments but 3 were given.",
     )
 
 
 def test_a_library_without_class_metadata_keeps_its_constructor_unchecked(result):
     # SoftwareSerial registers no class, so its type is used as it stands.
-    compiled = result("from micropy import SoftwareSerial\n\nlink = SoftwareSerial(10, 11, 12)\n" + SHELL)
+    compiled = result("from controllerpy import SoftwareSerial\n\nlink = SoftwareSerial(10, 11, 12)\n" + SHELL)
 
     assert compiled.context.globals["link"].cpp_type == "SoftwareSerial"
     assert "SoftwareSerial link(10, 11, 12);" in compiled.cpp
 
 
 # ----------------------------------------------- library class methods
-SERVO = "from micropy import Servo\n\nservo = Servo()\n"
-WIDGET = "from micropy import Widget\n\nw = Widget(3)\n"
+SERVO = "from controllerpy import Servo\n\nservo = Servo()\n"
+WIDGET = "from controllerpy import Widget\n\nw = Widget(3)\n"
 
 
 def running(preamble: str, body: str) -> str:
@@ -560,13 +560,13 @@ def test_a_library_class_has_only_the_methods_it_declares(error):
 
 def test_a_library_object_without_class_metadata_keeps_its_methods_unchecked(result):
     # SoftwareSerial registers no class, so nothing is known about its members.
-    compiled = result(running("from micropy import SoftwareSerial\n\nlink = SoftwareSerial(10, 11)\n", "link.begin(9600)"))
+    compiled = result(running("from controllerpy import SoftwareSerial\n\nlink = SoftwareSerial(10, 11)\n", "link.begin(9600)"))
 
     assert "link.begin(9600);" in compiled.cpp
 
 
 # ------------------------------------------ libraries the core also provides
-LIQUID_CRYSTAL = "from micropy import LiquidCrystal\n\nlcd = LiquidCrystal(12, 13, 14, 15, 16)\n"
+LIQUID_CRYSTAL = "from controllerpy import LiquidCrystal\n\nlcd = LiquidCrystal(12, 13, 14, 15, 16)\n"
 
 
 def test_liquid_crystal_is_registered_as_a_library_type(result):
@@ -594,13 +594,13 @@ def test_liquid_crystal_members_are_passed_through(result, call):
     [("", "LiquidCrystal lcd;"), ("()", "LiquidCrystal lcd;"), ("(9)", "LiquidCrystal lcd(9);")],
 )
 def test_liquid_crystal_constructor_arguments_are_not_checked(result, arguments, declared):
-    compiled = result(f"from micropy import LiquidCrystal\n\nlcd = LiquidCrystal{arguments}\n" + SHELL)
+    compiled = result(f"from controllerpy import LiquidCrystal\n\nlcd = LiquidCrystal{arguments}\n" + SHELL)
 
     assert declared in compiled.cpp
 
 
 def test_a_library_type_can_be_annotated(result):
-    compiled = result("from micropy import LiquidCrystal\n\nlcd: LiquidCrystal = LiquidCrystal(12, 13)\n" + SHELL)
+    compiled = result("from controllerpy import LiquidCrystal\n\nlcd: LiquidCrystal = LiquidCrystal(12, 13)\n" + SHELL)
 
     assert "LiquidCrystal lcd(12, 13);" in compiled.cpp
 
@@ -619,7 +619,7 @@ def test_a_core_library_needs_no_import_to_be_used(result, call):
 
 
 def test_a_core_library_can_be_imported_for_its_header(result):
-    compiled = result("from micropy import Wire\n" + SHELL)
+    compiled = result("from controllerpy import Wire\n" + SHELL)
 
     assert compiled.context.includes == ["Wire.h"]
     # Importing it registers no type: the core declares the object, not a type
@@ -685,25 +685,25 @@ def class_only_library(monkeypatch) -> Library:
 
 
 def test_a_class_only_library_provides_its_type(result, class_only_library):
-    compiled = result("from micropy import Gadget\n" + SHELL)
+    compiled = result("from controllerpy import Gadget\n" + SHELL)
 
     assert compiled.context.includes == ["Gadget.h"]
     assert compiled.context.external_types["Gadget"] == "Gadget"
 
 
 def test_a_class_only_library_validates_its_constructor(error, class_only_library):
-    error("from micropy import Gadget\n\ngadget = Gadget(1)\n" + SHELL, message="Gadget() takes exactly 0 arguments but 1 was given.")
+    error("from controllerpy import Gadget\n\ngadget = Gadget(1)\n" + SHELL, message="Gadget() takes exactly 0 arguments but 1 was given.")
 
 
 def test_a_class_only_library_keeps_its_method_validation(error, class_only_library):
     error(
-        "from micropy import Gadget\n\ngadget = Gadget()\n\ndef main():\n    gadget.ping(1)\n\ndef loop():\n    pass\n",
+        "from controllerpy import Gadget\n\ngadget = Gadget()\n\ndef main():\n    gadget.ping(1)\n\ndef loop():\n    pass\n",
         message="Gadget.ping() takes exactly 0 arguments but 1 was given.",
     )
 
 
 def test_a_class_only_library_records_the_library_and_the_class_it_provides(result, class_only_library):
-    compiled = result("from micropy import Gadget\n" + SHELL)
+    compiled = result("from controllerpy import Gadget\n" + SHELL)
 
     # The library is imported under the name of the class it provides, and the
     # class is what the compiler resolves that name to.
@@ -712,7 +712,7 @@ def test_a_class_only_library_records_the_library_and_the_class_it_provides(resu
 
 
 def test_a_library_without_classes_keeps_only_its_own_type(result):
-    compiled = result("from micropy import SoftwareSerial\n" + SHELL)
+    compiled = result("from controllerpy import SoftwareSerial\n" + SHELL)
 
     assert compiled.context.external_types == {"SoftwareSerial": "SoftwareSerial"}
     assert compiled.context.library_class("SoftwareSerial") is None
@@ -751,7 +751,7 @@ def typed_library(monkeypatch) -> Library:
     return library
 
 
-TYPED = "from micropy import Gadget\n\ngadget = Gadget(10)\n"
+TYPED = "from controllerpy import Gadget\n\ngadget = Gadget(10)\n"
 
 
 def test_a_method_takes_the_argument_types_it_declares(result, typed_library):
@@ -784,13 +784,13 @@ def test_a_method_rejects_the_argument_type_at_the_position_it_was_given(error, 
 
 
 def test_a_constructor_takes_the_argument_types_it_declares(result, typed_library):
-    compiled = result("from micropy import Gadget\n\ngadget = Gadget(10)\n" + SHELL)
+    compiled = result("from controllerpy import Gadget\n\ngadget = Gadget(10)\n" + SHELL)
 
     assert "Gadget gadget(10);" in compiled.cpp
 
 
 def test_a_constructor_rejects_an_argument_type_it_does_not_declare(error, typed_library):
-    error("from micropy import Gadget\n\ngadget = Gadget('10')\n" + SHELL, message="Argument 1 of Gadget() must be int, not const char*.")
+    error("from controllerpy import Gadget\n\ngadget = Gadget('10')\n" + SHELL, message="Argument 1 of Gadget() must be int, not const char*.")
 
 
 def test_a_method_without_declared_types_only_has_its_arity_checked(result, typed_library):
@@ -1124,7 +1124,7 @@ def test_int_and_float_are_promoted_not_rejected(result):
 def test_arduino_api_return_types_are_known_to_the_type_system():
     """Every registered return type must be one the inference lattice can merge.
 
-    A type such as ``long`` is understood by C++ but not by micropy's type
+    A type such as ``long`` is understood by C++ but not by controllerpy's type
     system, so the result could never be assigned to an existing int or float
     variable.
     """
@@ -1432,7 +1432,7 @@ REPORTING_FUNCTIONS = {"naming": "check_reserved_variable", "types": "resolve_an
 @pytest.mark.parametrize("module", sorted(REPORTING_FUNCTIONS))
 def test_target_modules_report_through_the_reporter_not_the_context(module):
 
-    imported = importlib.import_module(f"micropy.compiler.validator.{module}")
+    imported = importlib.import_module(f"controllerpy.compiler.validator.{module}")
     function = getattr(imported, REPORTING_FUNCTIONS[module])
     annotations = {getattr(hint, "__name__", str(hint)) for hint in get_type_hints(function).values()}
 

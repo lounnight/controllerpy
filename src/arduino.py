@@ -20,17 +20,17 @@ __all__ = [
     "write_sketch",
 ]
 
-ENV_VAR = "MICROPY_ARDUINO_CLI"
+ENV_VAR = "CONTROLLERPY_ARDUINO_CLI"
 INSTALL_URL = "https://arduino.github.io/arduino-cli/latest/installation/"
 
 INSTALL_HINT_LINES = [
     f"1. Install the Arduino CLI: {INSTALL_URL}",
     "2. Install the AVR core for the Uno: arduino-cli core install arduino:avr",
-    "3. Or point micropy at an existing binary:",
-    "     micropy compile main.py --arduino-cli /path/to/arduino-cli",
+    "3. Or point controllerpy at an existing binary:",
+    "     controllerpy compile main.py --arduino-cli /path/to/arduino-cli",
     f"     (or set the {ENV_VAR} environment variable)",
     "",
-    "'micropy build' and 'micropy check' work without arduino-cli.",
+    "'controllerpy build' and 'controllerpy check' work without arduino-cli.",
 ]
 
 @dataclass
@@ -69,7 +69,7 @@ def find_arduino_cli(explicit: Optional[str] = None) -> str:
         return found
     raise ArduinoCliError(
         "arduino-cli was not found.",
-        hint="micropy needs the Arduino CLI to compile and upload sketches:",
+        hint="controllerpy needs the Arduino CLI to compile and upload sketches:",
         hint_lines=INSTALL_HINT_LINES,
     )
 

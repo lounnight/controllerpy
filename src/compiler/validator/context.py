@@ -13,7 +13,7 @@ import ast
 from typing import Dict, List, Optional
 
 from ...boards import Board, default_board
-from ...errors import MicropyError
+from ...errors import ControllerPyError
 from .api import API_FUNCTIONS, ARDUINO_CONSTANTS, BUILTIN_FUNCTIONS
 from .libraries import ApiClass, Library, library_for
 from .naming import cpp_name as _cpp_name, is_reserved
@@ -62,7 +62,7 @@ class CompileContext:
     ) -> None:
         line = getattr(node, "lineno", None)
         col = getattr(node, "col_offset", None)
-        raise MicropyError(
+        raise ControllerPyError(
             message,
             filename=self.filename,
             line=line,

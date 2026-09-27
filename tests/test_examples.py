@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from micropy.compiler import compile_source
+from controllerpy.compiler import compile_source
 
 ROOT = Path(__file__).resolve().parents[1]
 #: Every example is an initialized project: ``examples/<name>/main.py``.

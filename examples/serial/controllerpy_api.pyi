@@ -1,14 +1,14 @@
-"""Type stubs for the micropy API - IDE/type-checker support only.
+"""Type stubs for the controllerpy API - IDE/type-checker support only.
 
 This file is never uploaded to the Arduino and is never imported while
-compiling.  Run ``micropy init`` to copy it into a project next to
+compiling.  Run ``controllerpy init`` to copy it into a project next to
 ``pyrightconfig.json`` and ``main.py``; VS Code / Pylance then
 complete the constants and functions below without any import.
 
-``micropy stubs`` copies the very same file for older projects, which
+``controllerpy stubs`` copies the very same file for older projects, which
 can still add::
 
-    from micropy_api import *
+    from controllerpy_api import *
 """
 
 from typing import Any
@@ -139,7 +139,7 @@ def round(value: float) -> float:
 
 # Arduino libraries
 
-# from micropy import Servo
+# from controllerpy import Servo
 class Servo:
     """Control a standard Arduino servo motor."""
     def attach(self, pin: int) -> None:

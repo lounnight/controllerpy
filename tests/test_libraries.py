@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import dataclasses
 
-from micropy.compiler.validator.api import ARDUINO_OBJECTS
-from micropy.compiler.validator.libraries import (
+from controllerpy.compiler.validator.api import ARDUINO_OBJECTS
+from controllerpy.compiler.validator.libraries import (
     CORE_OBJECTS,
     LIBRARIES,
     ApiClass,
@@ -169,7 +169,7 @@ def test_supported_libraries_is_a_copy_of_the_table():
 
 
 # -------------------------------------------------------- the listed libraries
-#: Every library micropy knows, as the registry lists them.  Each one is a real
+#: Every library controllerpy knows, as the registry lists them.  Each one is a real
 #: Arduino library that shipped with the core, not a fixture.
 LIBRARY_NAMES = ("EEPROM", "LiquidCrystal", "SPI", "Servo", "SoftwareSerial", "Wire")
 
@@ -180,7 +180,7 @@ CORE_LIBRARY_NAMES = ("EEPROM", "SPI", "Wire")
 TYPE_LIBRARY_NAMES = ("LiquidCrystal", "Servo", "SoftwareSerial")
 
 
-def test_every_arduino_library_micropy_knows_is_registered():
+def test_every_arduino_library_controllerpy_knows_is_registered():
     assert sorted(supported_libraries()) == list(LIBRARY_NAMES)
 
 

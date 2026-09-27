@@ -2,10 +2,10 @@
 
 These are the only commands that need ``arduino-cli`` on the PATH.  They compile
 the sketch first (through the same :func:`compile_file` the other commands use),
-so a program micropy cannot generate is reported as a source error rather than
+so a program controllerpy cannot generate is reported as a source error rather than
 as a toolchain failure.
 
-The division of labour with :mod:`micropy.arduino` is the point of this module:
+The division of labour with :mod:`controllerpy.arduino` is the point of this module:
 ``arduino.py`` runs a command and hands back what it ran and what it said, and
 never decides how that looks.  Here each operation is announced with
 ``report_step`` before it happens, the command and the tool's own output are
@@ -35,7 +35,7 @@ from ..utils import arduino_build_path, sketch_name, write_ino
 
 __all__ = ["cmd_compile", "cmd_ports", "cmd_upload"]
 
-_PORTS_HINT = "Run 'micropy ports' to list the boards connected to this computer."
+_PORTS_HINT = "Run 'controllerpy ports' to list the boards connected to this computer."
 
 
 def cmd_compile(args: argparse.Namespace) -> int:
@@ -66,7 +66,7 @@ def cmd_compile(args: argparse.Namespace) -> int:
 def cmd_upload(args: argparse.Namespace) -> int:
     if not args.port:
         report_error(
-            "Upload needs a serial port: micropy upload main.py --board uno -p /dev/ttyACM0",
+            "Upload needs a serial port: controllerpy upload main.py --board uno -p /dev/ttyACM0",
             hint=_PORTS_HINT,
         )
         return EXIT_USAGE

@@ -1,12 +1,12 @@
-"""The ``micropy`` entry point.
+"""The ``controllerpy`` entry point.
 
-    micropy init [--force]                    write the IDE configuration files
-    micropy build main.py                     generate build/main.ino
-    micropy check main.py                     parse and validate only
-    micropy clean                             remove generated files
-    micropy compile main.py --board uno       compile with arduino-cli
-    micropy upload main.py --board uno --port /dev/ttyACM0
-    micropy ports | boards | stubs
+    controllerpy init [--force]                    write the IDE configuration files
+    controllerpy build main.py                     generate build/main.ino
+    controllerpy check main.py                     parse and validate only
+    controllerpy clean                             remove generated files
+    controllerpy compile main.py --board uno       compile with arduino-cli
+    controllerpy upload main.py --board uno --port /dev/ttyACM0
+    controllerpy ports | boards | stubs
 
 :func:`main` does three things and nothing else: parse the arguments, run the
 command the parser selected, and turn whatever comes back into an exit code.  It
@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 from typing import Callable, Optional, Sequence
 
-from ..errors import ArduinoCliError, MicropyError
+from ..errors import ArduinoCliError, ControllerPyError
 from .exit_codes import EXIT_COMPILE_ERROR, EXIT_INTERRUPTED, EXIT_INTERNAL, EXIT_TOOLCHAIN
 from .output import report_exception, report_internal_error, report_interrupted
 from .parser import build_parser
@@ -34,7 +34,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     handler: Handler = args.handler
     try:
         return handler(args)
-    except MicropyError as exc:
+    except ControllerPyError as exc:
         if args.debug:
             raise
         report_exception(exc)

@@ -5,8 +5,13 @@ from __future__ import annotations
 import ast
 
 import pytest
-from micropy.compiler.generator import CodeWriter, cpp_string_literal
-from micropy.compiler.validator.libraries import LIBRARIES, ApiClass, ApiMethod, Library
+from controllerpy.compiler.generator import CodeWriter, cpp_string_literal
+from controllerpy.compiler.validator.libraries import (
+    LIBRARIES,
+    ApiClass,
+    ApiMethod,
+    Library,
+)
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
 
@@ -747,10 +752,10 @@ def test_arduino_core_names_cannot_be_used_as_variables(error):
 
 def test_swap_uses_temporaries(program):
     cpp = program("def main():\n    a = 1\n    b = 2\n    a, b = b, a\n\ndef loop():\n    pass\n")
-    assert "int micropy_tmp0 = b;" in cpp
-    assert "int micropy_tmp1 = a;" in cpp
-    assert "a = micropy_tmp0;" in cpp
-    assert "b = micropy_tmp1;" in cpp
+    assert "int controllerpy_tmp0 = b;" in cpp
+    assert "int controllerpy_tmp1 = a;" in cpp
+    assert "a = controllerpy_tmp0;" in cpp
+    assert "b = controllerpy_tmp1;" in cpp
 
 
 def test_floor_division_and_power_augmented_assignment(program):
@@ -810,7 +815,7 @@ def test_serial_calls_can_be_written_in_cpp_style(program):
 def test_library_import_adds_the_include_and_the_object(program):
     cpp = program(
         """
-        from micropy import Servo
+        from controllerpy import Servo
 
         servo = Servo()
 
@@ -830,7 +835,7 @@ def test_library_import_adds_the_include_and_the_object(program):
 def test_a_registered_constructor_produces_the_library_type(program):
     cpp = program(
         """
-        from micropy import Servo
+        from controllerpy import Servo
 
         servo = Servo()
 
@@ -848,7 +853,7 @@ def test_a_registered_constructor_produces_the_library_type(program):
 def test_library_object_inside_a_function(program):
     cpp = program(
         """
-        from micropy import SoftwareSerial
+        from controllerpy import SoftwareSerial
 
         def main():
             link = SoftwareSerial(10, 11)
@@ -867,7 +872,7 @@ def test_library_object_inside_a_function(program):
 def test_a_library_type_without_registered_methods_is_declared_and_used_as_written(program):
     cpp = program(
         """
-        from micropy import LiquidCrystal
+        from controllerpy import LiquidCrystal
 
         lcd = LiquidCrystal(12, 13, 14, 15, 16)
 
@@ -908,7 +913,7 @@ def test_the_core_libraries_are_called_without_being_included(program):
 def test_a_registered_method_keeps_its_cpp_name(program):
     cpp = program(
         """
-        from micropy import Servo
+        from controllerpy import Servo
 
         servo = Servo()
 
@@ -958,7 +963,7 @@ def renaming_library(monkeypatch) -> Library:
 def test_a_renamed_method_is_emitted_under_its_cpp_name(program, renaming_library):
     cpp = program(
         """
-        from micropy import Gadget
+        from controllerpy import Gadget
 
         gadget = Gadget()
 
@@ -975,7 +980,7 @@ def test_a_renamed_method_is_emitted_under_its_cpp_name(program, renaming_librar
 def test_a_method_without_a_cpp_name_keeps_its_python_name(program, renaming_library):
     cpp = program(
         """
-        from micropy import Gadget
+        from controllerpy import Gadget
 
         gadget = Gadget()
 
@@ -992,7 +997,7 @@ def test_a_method_without_a_cpp_name_keeps_its_python_name(program, renaming_lib
 def test_a_renamed_method_is_emitted_on_a_library_object_from_inside_a_function(program, renaming_library):
     cpp = program(
         """
-        from micropy import Gadget
+        from controllerpy import Gadget
 
         def main():
             gadget = Gadget()
@@ -1050,7 +1055,7 @@ def library_with_its_own_cpp_type(monkeypatch) -> Library:
 def test_a_constructor_produces_the_type_its_class_declares(program, library_with_its_own_cpp_type):
     cpp = program(
         """
-        from micropy import Widget
+        from controllerpy import Widget
 
         w = Widget()
 
@@ -1097,7 +1102,7 @@ def class_only_library(monkeypatch) -> Library:
 def test_a_class_only_library_provides_the_type_its_class_declares(program, class_only_library):
     cpp = program(
         """
-        from micropy import Doohickey
+        from controllerpy import Doohickey
 
         thing = Doohickey()
 
@@ -1115,7 +1120,7 @@ def test_a_class_only_library_provides_the_type_its_class_declares(program, clas
 def test_a_class_only_library_class_uses_its_registered_methods(program, class_only_library):
     cpp = program(
         """
-        from micropy import Doohickey
+        from controllerpy import Doohickey
 
         thing = Doohickey()
 
@@ -1134,7 +1139,7 @@ def test_a_declared_argument_type_does_not_change_the_cpp_it_generates(program, 
     # a check, so the call is generated exactly as it was without it.
     cpp = program(
         """
-        from micropy import Doohickey
+        from controllerpy import Doohickey
 
         thing = Doohickey()
 
@@ -1173,8 +1178,8 @@ def multi_class_library(monkeypatch) -> Library:
 def test_one_library_can_provide_several_classes(program, multi_class_library):
     cpp = program(
         """
-        from micropy import Foo
-        from micropy import Bar
+        from controllerpy import Foo
+        from controllerpy import Bar
 
         foo = Foo()
         bar = Bar(3)
@@ -1214,7 +1219,7 @@ def oddly_named_class_library(monkeypatch) -> Library:
 def test_a_class_is_found_by_the_type_it_produces(program, oddly_named_class_library):
     cpp = program(
         """
-        from micropy import Odd
+        from controllerpy import Odd
 
         odd = Odd()
 

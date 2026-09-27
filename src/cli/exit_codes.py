@@ -1,4 +1,4 @@
-"""The exit codes ``micropy`` returns, in one place.
+"""The exit codes ``controllerpy`` returns, in one place.
 
 Every command returns one of these, and so does :mod:`.main` when it converts an
 exception into a result.  They are defined here rather than in ``main`` so the
