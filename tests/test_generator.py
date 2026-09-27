@@ -1042,7 +1042,7 @@ def class_only_library(monkeypatch) -> Library:
             ApiClass(
                 "Doohickey",
                 "Doohickey",
-                methods=(ApiMethod("set_speed", 1, 1, "int", "setSpeed"),),
+                methods=(ApiMethod("set_speed", 1, 1, "int", "setSpeed", params=("int",)),),
                 ctor_min_args=0,
                 ctor_max_args=0,
             ),
@@ -1086,6 +1086,25 @@ def test_a_class_only_library_class_uses_its_registered_methods(program, class_o
         """
     )
     assert "int value = thing.setSpeed(100);" in cpp
+
+
+def test_a_declared_argument_type_does_not_change_the_cpp_it_generates(program, class_only_library):
+    # The class registers set_speed() as taking an int; describing the type is
+    # a check, so the call is generated exactly as it was without it.
+    cpp = program(
+        """
+        from micropy import Doohickey
+
+        thing = Doohickey()
+
+        def main():
+            thing.set_speed(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "thing.setSpeed(100);" in cpp
 
 
 @pytest.fixture

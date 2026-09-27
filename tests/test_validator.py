@@ -644,6 +644,101 @@ def test_a_library_without_classes_keeps_only_its_own_type(result):
     assert compiled.context.library_class("SoftwareSerial") is None
 
 
+# ------------------------------------------------- argument type checking
+@pytest.fixture
+def typed_library(monkeypatch) -> Library:
+    """A library that describes the types of some of the arguments it takes.
+
+    It registers ``set_speed``, ``configure`` and a constructor whose types it
+    knows, and ``ping``, whose types it does not, so both paths are exercised.
+    """
+
+    library = Library(
+        "Gadget",
+        "Gadget.h",
+        "Gadget",
+        classes=(
+            ApiClass(
+                "Gadget",
+                "Gadget",
+                methods=(
+                    ApiMethod("set_speed", 1, 1, "void", params=("int",)),
+                    ApiMethod("configure", 2, 2, "void", params=("int", "float")),
+                    ApiMethod("ping", 0, 1, "int"),
+                ),
+                ctor_params=("int",),
+                ctor_min_args=1,
+                ctor_max_args=1,
+            ),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "Gadget", library)
+
+    return library
+
+
+TYPED = "from micropy import Gadget\n\ngadget = Gadget(10)\n"
+
+
+def test_a_method_takes_the_argument_types_it_declares(result, typed_library):
+    compiled = result(running(TYPED, "gadget.set_speed(100)"))
+
+    assert "gadget.set_speed(100);" in compiled.cpp
+
+
+def test_a_method_rejects_an_argument_type_it_does_not_declare(error, typed_library):
+    error(running(TYPED, "gadget.set_speed('100')"), message="Argument 1 of Gadget.set_speed() must be int, not const char*.")
+
+
+@pytest.mark.parametrize("body", ["gadget.configure(1, 2.5)", "gadget.configure(1, 2)"])
+def test_every_argument_of_a_method_is_checked_in_turn(result, typed_library, body):
+    # An int is stored in a float, the way the type system allows everywhere else.
+    compiled = result(running(TYPED, body))
+
+    assert f"{body};" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("gadget.configure('1', 2.5)", "Argument 1 of Gadget.configure() must be int, not const char*."),
+        ("gadget.configure(1, '2.5')", "Argument 2 of Gadget.configure() must be float, not const char*."),
+    ],
+)
+def test_a_method_rejects_the_argument_type_at_the_position_it_was_given(error, typed_library, body, message):
+    error(running(TYPED, body), message=message)
+
+
+def test_a_constructor_takes_the_argument_types_it_declares(result, typed_library):
+    compiled = result("from micropy import Gadget\n\ngadget = Gadget(10)\n" + SHELL)
+
+    assert "Gadget gadget(10);" in compiled.cpp
+
+
+def test_a_constructor_rejects_an_argument_type_it_does_not_declare(error, typed_library):
+    error("from micropy import Gadget\n\ngadget = Gadget('10')\n" + SHELL, message="Argument 1 of Gadget() must be int, not const char*.")
+
+
+def test_a_method_without_declared_types_only_has_its_arity_checked(result, typed_library):
+    # Gadget.ping() registers no types, so this compiles the way it did before
+    # any library could describe one.
+    compiled = result(running(TYPED, "value = gadget.ping(1.5)"))
+
+    assert "int value = gadget.ping(1.5);" in compiled.cpp
+
+
+def test_a_method_without_declared_types_still_rejects_too_many_arguments(error, typed_library):
+    error(running(TYPED, "gadget.ping(1, 2)"), message="Gadget.ping() takes 0 to 1 arguments but 2 were given.")
+
+
+@pytest.mark.parametrize("call", ["servo.attach(9)", "servo.write(90)", "servo.read()", "servo.write(90.5)"])
+def test_servo_still_takes_the_arguments_it_always_took(result, call):
+    # Servo describes no argument types, so all it ever checked is its arity.
+    compiled = result(running(SERVO, call))
+
+    assert f"{call};" in compiled.cpp
+
+
 # ------------------------------------------------------------------- classes
 CLASS_SHELL = """
 class Led:

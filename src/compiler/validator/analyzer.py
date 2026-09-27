@@ -32,6 +32,7 @@ from .types import (
     VOID_TYPE,
     merge_types,
     resolve_annotation,
+    types_compatible,
 )
 
 __all__ = ["BodyAnalyzer", "RETYPE_PASSES"]
@@ -726,6 +727,7 @@ class BodyAnalyzer(ast.NodeVisitor):
                 library_class.ctor_min_args,
                 library_class.ctor_max_args,
             )
+            self._check_argument_types(node, name, library_class.ctor_params, arg_types)
             return library_class.cpp_type
         info = self.ctx.functions.get(name)
         if info is None:
@@ -772,7 +774,7 @@ class BodyAnalyzer(ast.NodeVisitor):
         class_info = self.ctx.class_of(base_type)
         if class_info is None:
             if self.ctx.is_object_type(base_type):
-                return self._library_method_type(node, base_type, attr)
+                return self._library_method_type(node, base_type, attr, arg_types)
             self.ctx.error(node, f"Cannot call method '{attr}' on this value.")
             return UNKNOWN_TYPE
         method = class_info.methods.get(attr)
@@ -785,17 +787,23 @@ class BodyAnalyzer(ast.NodeVisitor):
                 param.record_type(arg_type)
         return method.return_type or UNKNOWN_TYPE
 
-    def _library_method_type(self, node: ast.Call, base_type: str, attr: str) -> str:
+    def _library_method_type(self, node: ast.Call, base_type: str, attr: str, arg_types: Sequence[str]) -> str:
         api_class = self.ctx.api_class_of(base_type)
         if api_class is None:
-            return UNKNOWN_TYPE 
+            return UNKNOWN_TYPE
         method = api_class.method(attr)
         if method is None:
             self.ctx.error(node, f"Class '{api_class.name}' has no method '{attr}'.")
             return UNKNOWN_TYPE
-        self._check_arity(node, f"{api_class.name}.{attr}", len(node.args), method.min_args, method.max_args)
-        
+        label = f"{api_class.name}.{attr}"
+        self._check_arity(node, label, len(node.args), method.min_args, method.max_args)
+        self._check_argument_types(node, label, method.params, arg_types)
         return method.returns
+
+    def _check_argument_types(self, node: ast.Call, label: str, params: Sequence[str], arg_types: Sequence[str]) -> None:
+        for index, (declared, inferred) in enumerate(zip(params, arg_types), start=1):
+            if not types_compatible(declared, inferred):
+                self.ctx.error(node.args[index - 1], f"Argument {index} of {label}() must be {declared}, not {inferred}.")
 
     def _len_type(self, node: ast.Call) -> str:
         self._check_arity(node, "len", len(node.args), 1, 1)

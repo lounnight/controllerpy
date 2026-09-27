@@ -53,6 +53,16 @@ def test_a_method_returns_nothing_unless_it_says_otherwise():
     assert a_method().returns == "void"
 
 
+def test_a_method_describes_no_argument_types_unless_it_says_otherwise():
+    assert a_method().params == ()
+
+
+def test_a_method_can_describe_the_types_of_its_arguments():
+    method = ApiMethod("write", 1, 1, "void", params=("int",))
+
+    assert method.params == ("int",)
+
+
 # -------------------------------------------------------------------- classes
 def test_a_class_looks_a_method_up_by_its_python_name():
     cls = a_class()
@@ -82,6 +92,16 @@ def test_a_class_keeps_its_python_name_and_its_cpp_type_apart():
     cls = ApiClass("Widget", "WidgetT")
 
     assert (cls.name, cls.cpp_type) == ("Widget", "WidgetT")
+
+
+def test_a_class_describes_no_constructor_types_unless_it_says_otherwise():
+    assert a_class().ctor_params == ()
+
+
+def test_a_class_can_describe_the_types_its_constructor_takes():
+    cls = ApiClass("Widget", "Widget", ctor_params=("int",), ctor_min_args=1, ctor_max_args=1)
+
+    assert cls.ctor_params == ("int",)
 
 
 # ------------------------------------------------------------------ libraries
@@ -220,3 +240,11 @@ def test_servo_methods_are_looked_up_by_their_python_name():
 
 def test_servo_has_no_method_beyond_the_documented_api():
     assert servo().method("writeMicroseconds") is None
+
+
+def test_servo_describes_no_argument_types():
+    # attach() is overloaded, and one list of types cannot describe all three of
+    # its signatures, so Servo is left with its arity checked and nothing more.
+    for method in servo().methods:
+        assert method.params == ()
+    assert servo().ctor_params == ()

@@ -16,6 +16,13 @@ This module is a leaf of the package: it holds data, looks names up, and
 imports nothing from the rest of the compiler.  The types stored on
 :class:`ApiMethod` and :class:`ApiClass` are the C++ type strings the type
 system works with (``int``, ``float``, ``bool``, ``String``, ``void``).
+
+A method or a constructor describes the types it accepts in ``params`` /
+``ctor_params``, and describing them is optional: an entry that leaves them out
+has its arity checked and nothing else, so a library is described as far as it
+is known to be.  The types are listed one per argument, which means an
+overloaded method is described by the parameters of a single one of its
+signatures at most - the rest is left to C++.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -30,6 +37,7 @@ class ApiMethod:
     max_args: int
     returns: str = "void"
     cpp_name: Optional[str] = None
+    params: Tuple[str, ...] = ()
 
     @property
     def cpp_method(self) -> str:
@@ -42,6 +50,7 @@ class ApiClass:
     methods: Tuple[ApiMethod, ...] = ()
     ctor_min_args: int = 0
     ctor_max_args: int = 0
+    ctor_params: Tuple[str, ...] = ()
 
     def method(self, py_name: str) -> Optional[ApiMethod]:
         for candidate in self.methods:
