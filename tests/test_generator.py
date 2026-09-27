@@ -827,6 +827,24 @@ def test_library_import_adds_the_include_and_the_object(program):
     assert "servo.write(90);" in cpp
 
 
+def test_a_registered_constructor_produces_the_library_type(program):
+    cpp = program(
+        """
+        from micropy import Servo
+
+        servo = Servo()
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "#include <Servo.h>" in cpp
+    assert "Servo servo;" in cpp
+
+
 def test_library_object_inside_a_function(program):
     cpp = program(
         """
@@ -966,6 +984,46 @@ def test_a_renamed_library_method_does_not_rename_a_user_class_method(program):
         """
     )
     assert "int value = motor.set_speed(100);" in cpp
+
+
+@pytest.fixture
+def library_with_its_own_cpp_type(monkeypatch) -> Library:
+    """A library whose class type and whose own ``cpp_type`` disagree.
+
+    ``Library.cpp_type`` is the older, coarser description of the library and
+    ``ApiClass.cpp_type`` is what the class is actually called.  A test can only
+    see which of the two a constructor uses if the two differ.
+    """
+
+    library = Library(
+        "Widget",
+        "Widget.h",
+        "widget_handle",
+        classes=(ApiClass("Widget", "Widget", methods=(ApiMethod("set_speed", 1, 1, "int", "setSpeed"),)),),
+    )
+    monkeypatch.setitem(LIBRARIES, "Widget", library)
+
+    return library
+
+
+def test_a_constructor_produces_the_type_its_class_declares(program, library_with_its_own_cpp_type):
+    cpp = program(
+        """
+        from micropy import Widget
+
+        w = Widget()
+
+        def main():
+            value = w.set_speed(1)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Widget w;" in cpp
+    assert "widget_handle w;" not in cpp
+    # The type the constructor produced is the one the method system reads.
+    assert "int value = w.setSpeed(1);" in cpp
 
 
 def test_an_arduino_builtin_object_member_keeps_its_name(program):
