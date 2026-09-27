@@ -10,9 +10,14 @@ from typing import get_type_hints
 import pytest
 
 import micropy.compiler.validator as validator
+from micropy.compiler.validator.libraries import library_for, supported_libraries
 from micropy.compiler.validator.types import SCALAR_TYPES
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
+
+#: The registry is the source of truth for which libraries can be imported, so
+#: the import tests are written against whatever it lists.
+LIBRARY_NAMES = sorted(supported_libraries())
 
 
 # entry
@@ -357,6 +362,69 @@ def test_ide_only_module_imports_are_skipped(result):
 def test_named_import_from_the_api_stub_is_accepted(result):
     compiled = result("from micropy_api import HIGH, pin_mode\n" + SHELL)
     assert compiled.context.includes == []
+
+
+# ------------------------------------------------ imports through the registry
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_every_registered_library_is_importable_from_the_api_module(result, name):
+    library = library_for(name)
+    compiled = result(f"from micropy import {name}\n" + SHELL)
+
+    assert compiled.context.imported_libraries[name] is library
+    assert compiled.context.includes == [library.header]
+    assert f"#include <{library.header}>" in compiled.cpp
+    if library.cpp_type is None:
+        assert name not in compiled.context.external_types
+    else:
+        assert compiled.context.external_types[name] == library.cpp_type
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_every_registered_library_is_importable_by_its_own_name(result, name):
+    compiled = result(f"import {name}\n" + SHELL)
+
+    assert compiled.context.includes == [library_for(name).header]
+
+
+@pytest.mark.parametrize("name", LIBRARY_NAMES)
+def test_every_registered_library_is_importable_from_its_own_module(result, name):
+    compiled = result(f"from {name} import {name}\n" + SHELL)
+
+    assert compiled.context.includes == [library_for(name).header]
+
+
+def test_a_library_module_name_is_metadata_and_not_an_import_alias(error):
+    # Servo records module="servo", but a library is only ever imported by the
+    # name the registry lists it under.
+    error(
+        "from servo import Servo\n" + SHELL,
+        message="Python library 'servo' is not supported on Arduino.",
+    )
+
+
+def test_importing_a_library_by_its_module_name_is_rejected(error):
+    error("import servo\n" + SHELL, message="Python library 'servo' is not supported on Arduino.")
+
+
+def test_a_name_that_is_not_a_registered_library_is_rejected(error):
+    error(
+        "from micropy import Widget\n" + SHELL,
+        message="'Widget' is not part of the micropy API.",
+    )
+
+
+def test_the_unsupported_library_hint_lists_the_registered_libraries(error):
+    exc = error("import requests\n" + SHELL, message="not supported on Arduino")
+
+    for name in LIBRARY_NAMES:
+        assert f"from micropy import {name}" in exc.hint_lines
+
+
+def test_the_unknown_api_name_hint_lists_the_registered_libraries(error):
+    exc = error("from micropy import Widget\n" + SHELL)
+
+    for name in LIBRARY_NAMES:
+        assert name in exc.hint_lines
 
 
 # ------------------------------------------------------------------- classes
