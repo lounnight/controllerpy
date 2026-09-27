@@ -150,10 +150,22 @@ class ExpressionEmitter:
         if isinstance(base, ast.Name) and (base.id in ARDUINO_OBJECTS or base.id in self.ctx.external_types):
             return attribute
         base_type = self.type_of(base)
-        if base_type in ARDUINO_OBJECTS or base_type in self.ctx.external_types:
+        if base_type in ARDUINO_OBJECTS:
             return attribute
+        if base_type in self.ctx.external_types:
+            return self._library_member_name(base_type, attribute)
 
         return self.name(attribute)
+
+    def _library_member_name(self, base_type: str, attribute: str) -> str:
+        api_class = self.ctx.api_class_of(base_type)
+        if api_class is None:
+            return attribute
+        method = api_class.method(attribute)
+        if method is None:
+            return attribute
+
+        return method.cpp_method
 
     def _subscript(self, node: ast.Subscript) -> str:
         return f"{self.expr(node.value)}[{self.value(node.slice)}]"

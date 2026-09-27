@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 
+import pytest
 from micropy.compiler.generator import CodeWriter, cpp_string_literal
+from micropy.compiler.validator.libraries import LIBRARIES, ApiClass, ApiMethod, Library
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
 
@@ -840,6 +842,145 @@ def test_library_object_inside_a_function(program):
     )
     assert "#include <SoftwareSerial.h>" in cpp
     assert "SoftwareSerial link(10, 11);" in cpp
+    # Nothing is registered for SoftwareSerial's members, so they are emitted as written.
+    assert "link.begin(9600);" in cpp
+
+
+def test_a_registered_method_keeps_its_cpp_name(program):
+    cpp = program(
+        """
+        from micropy import Servo
+
+        servo = Servo()
+
+        def main():
+            servo.attach(9)
+            servo.detach()
+
+        def loop():
+            servo.write(90)
+            value = servo.read()
+        """
+    )
+    assert "servo.attach(9);" in cpp
+    assert "servo.detach();" in cpp
+    assert "servo.write(90);" in cpp
+    assert "int value = servo.read();" in cpp
+
+
+@pytest.fixture
+def renaming_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It carries one method the C++ side spells differently and one it does not, so
+    a test can tell a mapped name from a name that was simply left alone.
+    """
+
+    library = Library(
+        "Gadget",
+        "Gadget.h",
+        "Gadget",
+        classes=(
+            ApiClass(
+                "Gadget",
+                "Gadget",
+                methods=(
+                    ApiMethod("set_speed", 1, 1, "int", "setSpeed"),
+                    ApiMethod("stop", 0, 0),
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "Gadget", library)
+
+    return library
+
+
+def test_a_renamed_method_is_emitted_under_its_cpp_name(program, renaming_library):
+    cpp = program(
+        """
+        from micropy import Gadget
+
+        gadget = Gadget()
+
+        def main():
+            value = gadget.set_speed(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "int value = gadget.setSpeed(100);" in cpp
+
+
+def test_a_method_without_a_cpp_name_keeps_its_python_name(program, renaming_library):
+    cpp = program(
+        """
+        from micropy import Gadget
+
+        gadget = Gadget()
+
+        def main():
+            gadget.stop()
+
+        def loop():
+            pass
+        """
+    )
+    assert "gadget.stop();" in cpp
+
+
+def test_a_renamed_method_is_emitted_on_a_library_object_from_inside_a_function(program, renaming_library):
+    cpp = program(
+        """
+        from micropy import Gadget
+
+        def main():
+            gadget = Gadget()
+            gadget.set_speed(1)
+
+        def loop():
+            pass
+        """
+    )
+    assert "gadget.setSpeed(1);" in cpp
+
+
+def test_a_renamed_library_method_does_not_rename_a_user_class_method(program):
+    cpp = program(
+        """
+        class Motor:
+            def __init__(self, pin):
+                self.pin = pin
+
+            def set_speed(self, value):
+                return value
+
+        motor = Motor(9)
+
+        def main():
+            value = motor.set_speed(100)
+
+        def loop():
+            pass
+        """
+    )
+    assert "int value = motor.set_speed(100);" in cpp
+
+
+def test_an_arduino_builtin_object_member_keeps_its_name(program):
+    cpp = program(
+        """
+        def main():
+            Serial.begin(9600)
+            Serial.println("hi")
+
+        def loop():
+            pass
+        """
+    )
+    assert "Serial.begin(9600);" in cpp
+    assert 'Serial.println("hi");' in cpp
 
 
 # ------------------------------------------------------------------- classes
