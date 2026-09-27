@@ -66,6 +66,13 @@ class Library:
 
         return None
 
+    def class_of_type(self, cpp_type: str) -> Optional[ApiClass]:
+        for candidate in self.classes:
+            if candidate.cpp_type == cpp_type:
+                return candidate
+
+        return None
+
 LIBRARIES: Dict[str, Library] = {
     "Servo": Library(
         "Servo",

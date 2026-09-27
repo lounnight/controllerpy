@@ -716,8 +716,17 @@ class BodyAnalyzer(ast.NodeVisitor):
                     param.record_type(arg_type)
             return cls.name
         if name in self.ctx.external_types:
-            # Arduino library object, e.g. Servo() -> `Servo servo;`
-            return self.ctx.external_types[name]
+            library_class = self.ctx.library_class(name)
+            if library_class is None:
+                return self.ctx.external_types[name]
+            self._check_arity(
+                node,
+                name,
+                len(node.args),
+                library_class.ctor_min_args,
+                library_class.ctor_max_args,
+            )
+            return library_class.cpp_type
         info = self.ctx.functions.get(name)
         if info is None:
             hint = PYTHON_BUILTIN_HINTS.get(name)
@@ -763,7 +772,7 @@ class BodyAnalyzer(ast.NodeVisitor):
         class_info = self.ctx.class_of(base_type)
         if class_info is None:
             if self.ctx.is_object_type(base_type):
-                return UNKNOWN_TYPE  # Arduino library API: pass through
+                return self._library_method_type(node, base_type, attr)
             self.ctx.error(node, f"Cannot call method '{attr}' on this value.")
             return UNKNOWN_TYPE
         method = class_info.methods.get(attr)
@@ -776,9 +785,19 @@ class BodyAnalyzer(ast.NodeVisitor):
                 param.record_type(arg_type)
         return method.return_type or UNKNOWN_TYPE
 
-    def _len_type(self, node: ast.Call) -> str:
-        """``len(values)`` -> ``sizeof(values) / sizeof(values[0])``."""
+    def _library_method_type(self, node: ast.Call, base_type: str, attr: str) -> str:
+        api_class = self.ctx.api_class_of(base_type)
+        if api_class is None:
+            return UNKNOWN_TYPE 
+        method = api_class.method(attr)
+        if method is None:
+            self.ctx.error(node, f"Class '{api_class.name}' has no method '{attr}'.")
+            return UNKNOWN_TYPE
+        self._check_arity(node, f"{api_class.name}.{attr}", len(node.args), method.min_args, method.max_args)
+        
+        return method.returns
 
+    def _len_type(self, node: ast.Call) -> str:
         self._check_arity(node, "len", len(node.args), 1, 1)
         base = node.args[0]
         if isinstance(base, ast.Name):

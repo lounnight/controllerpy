@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 from ...boards import Board, default_board
 from ...errors import MicropyError
 from .api import API_FUNCTIONS, ARDUINO_CONSTANTS, BUILTIN_FUNCTIONS
-from .libraries import Library, library_for
+from .libraries import ApiClass, Library, library_for
 from .naming import cpp_name as _cpp_name, is_reserved
 from .symbols import ClassInfo, FunctionInfo, Scope, VarInfo
 
@@ -128,6 +128,22 @@ class CompileContext:
         if library.cpp_type:
             self.external_types[library.name] = library.cpp_type
 
+    def library_class(self, name: str) -> Optional[ApiClass]:
+        for library in self.imported_libraries.values():
+            found = library.class_named(name)
+            if found is not None:
+                return found
+
+        return None
+
+    def api_class_of(self, cpp_type: str) -> Optional[ApiClass]:
+        for library in self.imported_libraries.values():
+            found = library.class_of_type(cpp_type)
+            if found is not None:
+                return found
+
+        return None
+    
     def register_api_import(self, name: str) -> bool:
         library = library_for(name)
         if library is not None:

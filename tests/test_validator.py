@@ -10,7 +10,7 @@ from typing import get_type_hints
 import pytest
 
 import micropy.compiler.validator as validator
-from micropy.compiler.validator.libraries import library_for, supported_libraries
+from micropy.compiler.validator.libraries import LIBRARIES, ApiClass, ApiMethod, Library, library_for, supported_libraries
 from micropy.compiler.validator.types import SCALAR_TYPES
 
 SHELL = "\ndef main():\n    pass\n\ndef loop():\n    pass\n"
@@ -425,6 +425,169 @@ def test_the_unknown_api_name_hint_lists_the_registered_libraries(error):
 
     for name in LIBRARY_NAMES:
         assert name in exc.hint_lines
+
+
+# --------------------------------------------- library class constructors
+def test_servo_is_created_with_the_registered_constructor(result):
+    compiled = result("from micropy import Servo\n\nservo = Servo()\n" + SHELL)
+
+    assert compiled.context.globals["servo"].cpp_type == "Servo"
+    assert "Servo servo;" in compiled.cpp
+
+
+def test_servo_constructor_rejects_an_argument(error):
+    error(
+        "from micropy import Servo\n\nservo = Servo(9)\n" + SHELL,
+        message="Servo() takes exactly 0 arguments but 1 was given.",
+        line=3,
+        col=9,
+    )
+
+
+def test_servo_constructor_rejects_several_arguments(error):
+    error(
+        "from micropy import Servo\n\nservo = Servo(9, 8)\n" + SHELL,
+        message="Servo() takes exactly 0 arguments but 2 were given.",
+    )
+
+
+def test_a_library_class_is_only_known_once_it_is_imported(error):
+    error("def main():\n    servo = Servo()\n\ndef loop():\n    pass\n", message="Unknown ArduinoPy function: Servo()")
+
+
+@pytest.fixture
+def registered_library(monkeypatch) -> Library:
+    """A library that only exists for the test that asks for it.
+
+    It takes one or two constructor arguments, so the checks below cannot pass by
+    accident against a fixed arity, and the compiler knows nothing about it that
+    is not in the registry entry.
+    """
+
+    library = Library(
+        "Widget",
+        "Widget.h",
+        "Widget",
+        classes=(
+            ApiClass(
+                "Widget",
+                "Widget",
+                methods=(ApiMethod("spin", 0, 1, "int"),),
+                ctor_min_args=1,
+                ctor_max_args=2,
+            ),
+        ),
+    )
+    monkeypatch.setitem(LIBRARIES, "Widget", library)
+
+    return library
+
+
+def test_a_registered_constructor_takes_the_arguments_it_declares(result, registered_library):
+    compiled = result("from micropy import Widget\n\nw = Widget(3)\n" + SHELL)
+
+    assert compiled.context.globals["w"].cpp_type == "Widget"
+    assert "Widget w(3);" in compiled.cpp
+
+
+def test_a_registered_constructor_rejects_too_few_arguments(error, registered_library):
+    error(
+        "from micropy import Widget\n\nw = Widget()\n" + SHELL,
+        message="Widget() takes 1 to 2 arguments but 0 were given.",
+    )
+
+
+def test_a_registered_constructor_rejects_too_many_arguments(error, registered_library):
+    error(
+        "from micropy import Widget\n\nw = Widget(1, 2, 3)\n" + SHELL,
+        message="Widget() takes 1 to 2 arguments but 3 were given.",
+    )
+
+
+def test_a_library_without_class_metadata_keeps_its_constructor_unchecked(result):
+    # SoftwareSerial registers no class, so its type is used as it stands.
+    compiled = result("from micropy import SoftwareSerial\n\nlink = SoftwareSerial(10, 11, 12)\n" + SHELL)
+
+    assert compiled.context.globals["link"].cpp_type == "SoftwareSerial"
+    assert "SoftwareSerial link(10, 11, 12);" in compiled.cpp
+
+
+# ----------------------------------------------- library class methods
+SERVO = "from micropy import Servo\n\nservo = Servo()\n"
+WIDGET = "from micropy import Widget\n\nw = Widget(3)\n"
+
+
+def running(preamble: str, body: str) -> str:
+    """A module that declares *preamble* and calls *body* from main()."""
+
+    return preamble + f"\ndef main():\n    {body}\n\ndef loop():\n    pass\n"
+
+
+@pytest.mark.parametrize(
+    "call",
+    ["servo.attach(9)", "servo.attach(9, 8, 7)", "servo.detach()", "servo.write(90)"],
+)
+def test_a_library_method_takes_the_arguments_it_declares(result, call):
+    compiled = result(running(SERVO, call))
+
+    assert f"{call};" in compiled.cpp
+
+
+@pytest.mark.parametrize("call", ["servo.attach(9)", "servo.read()"])
+def test_a_library_method_returns_what_it_declares(result, call):
+    compiled = result(running(SERVO, f"value = {call}"))
+
+    assert f"int value = {call};" in compiled.cpp
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        ("servo.attach()", "Servo.attach() takes 1 to 3 arguments but 0 were given."),
+        ("servo.attach(1, 2, 3, 4)", "Servo.attach() takes 1 to 3 arguments but 4 were given."),
+        ("servo.detach(1)", "Servo.detach() takes exactly 0 arguments but 1 was given."),
+        ("servo.write()", "Servo.write() takes exactly 1 argument but 0 were given."),
+        ("servo.read(1)", "Servo.read() takes exactly 0 arguments but 1 was given."),
+    ],
+)
+def test_a_library_method_rejects_arguments_it_does_not_take(error, call, message):
+    error(running(SERVO, call), message=message)
+
+
+def test_a_library_class_has_only_the_methods_it_declares(error):
+    error(running(SERVO, "servo.tune(90)"), message="Class 'Servo' has no method 'tune'.")
+
+
+def test_a_library_object_without_class_metadata_keeps_its_methods_unchecked(result):
+    # SoftwareSerial registers no class, so nothing is known about its members.
+    compiled = result(running("from micropy import SoftwareSerial\n\nlink = SoftwareSerial(10, 11)\n", "link.begin(9600)"))
+
+    assert "link.begin(9600);" in compiled.cpp
+
+
+def test_a_registered_method_is_found_on_any_value_of_the_class(result, registered_library):
+    compiled = result(running(WIDGET, "other = Widget(5)\n    other.spin()"))
+
+    assert "Widget other(5);" in compiled.cpp
+    assert "other.spin();" in compiled.cpp
+
+
+def test_a_registered_method_returns_what_it_declares(result, registered_library):
+    compiled = result(running(WIDGET, "value = w.spin(1)"))
+
+    assert "int value = w.spin(1);" in compiled.cpp
+
+
+def test_a_registered_method_rejects_arguments_it_does_not_take(error, registered_library):
+    error(running(WIDGET, "w.spin(1, 2)"), message="Widget.spin() takes 0 to 1 arguments but 2 were given.")
+
+
+def test_a_registered_class_has_only_the_methods_it_declares(error, registered_library):
+    error(running(WIDGET, "w.tune()"), message="Class 'Widget' has no method 'tune'.")
+
+
+def test_a_library_method_is_unknown_before_the_library_is_imported(error):
+    error("def main():\n    servo.attach(9)\n\ndef loop():\n    pass\n", message="Unknown name: 'servo'")
 
 
 # ------------------------------------------------------------------- classes
