@@ -144,3 +144,79 @@ def test_supported_libraries_is_a_copy_of_the_table():
 
     assert "Servo" in LIBRARIES
     assert library_for("Servo") is not None
+
+
+# --------------------------------------------------------------------- Servo
+def servo() -> ApiClass:
+    return library_for("Servo").class_named("Servo")
+
+
+def test_servo_is_registered_with_its_header_and_cpp_type():
+    library = library_for("Servo")
+
+    assert library.name == "Servo"
+    assert library.header == "Servo.h"
+    assert library.cpp_type == "Servo"
+
+
+def test_servo_keeps_its_module_name_as_metadata_only():
+    # Recorded, not honoured: `from servo import Servo` stays unsupported.
+    assert library_for("Servo").module == "servo"
+    assert "servo" not in LIBRARIES
+
+
+def test_servo_provides_the_servo_class():
+    cls = servo()
+
+    assert cls.name == "Servo"
+    assert cls.cpp_type == "Servo"
+
+
+def test_servo_is_created_without_arguments():
+    assert (servo().ctor_min_args, servo().ctor_max_args) == (0, 0)
+
+
+def test_servo_offers_exactly_the_four_documented_methods():
+    assert [method.py_name for method in servo().methods] == [
+        "attach",
+        "detach",
+        "write",
+        "read",
+    ]
+
+
+def test_servo_attach_takes_a_pin_and_optional_min_and_max():
+    attach = servo().method("attach")
+
+    # The three arities the Arduino API documents, as one method.
+    assert (attach.min_args, attach.max_args) == (1, 3)
+    assert attach.returns == "int"
+
+
+def test_servo_detach_takes_nothing_and_returns_nothing():
+    detach = servo().method("detach")
+
+    assert (detach.min_args, detach.max_args, detach.returns) == (0, 0, "void")
+
+
+def test_servo_write_takes_one_angle_and_returns_nothing():
+    write = servo().method("write")
+
+    assert (write.min_args, write.max_args, write.returns) == (1, 1, "void")
+
+
+def test_servo_read_takes_nothing_and_returns_a_position():
+    read = servo().method("read")
+
+    assert (read.min_args, read.max_args, read.returns) == (0, 0, "int")
+
+
+def test_servo_methods_are_looked_up_by_their_python_name():
+    # Servo is not renamed, so every Python name is the C++ name.
+    for method in servo().methods:
+        assert method.cpp_method == method.py_name
+        assert method.cpp_name is None
+
+
+def test_servo_has_no_method_beyond_the_documented_api():
+    assert servo().method("writeMicroseconds") is None

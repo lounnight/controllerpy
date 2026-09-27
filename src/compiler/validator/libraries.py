@@ -55,7 +55,7 @@ class Library:
     name: str
     header: str
     cpp_type: Optional[str] = None
-    
+
     module: Optional[str] = None
     classes: Tuple[ApiClass, ...] = ()
 
@@ -67,7 +67,24 @@ class Library:
         return None
 
 LIBRARIES: Dict[str, Library] = {
-    "Servo": Library("Servo", "Servo.h", "Servo"),
+    "Servo": Library(
+        "Servo",
+        "Servo.h",
+        "Servo",
+        module="servo",
+        classes=(
+            ApiClass(
+                "Servo",
+                "Servo",
+                methods=(
+                    ApiMethod("attach", 1, 3, "int"),
+                    ApiMethod("detach", 0, 0),
+                    ApiMethod("write", 1, 1),
+                    ApiMethod("read", 0, 0, "int"),
+                ),
+            ),
+        ),
+    ),
     "SoftwareSerial": Library("SoftwareSerial", "SoftwareSerial.h", "SoftwareSerial"),
     "LiquidCrystal": Library("LiquidCrystal", "LiquidCrystal.h", "LiquidCrystal"),
     "Wire": Library("Wire", "Wire.h"),
