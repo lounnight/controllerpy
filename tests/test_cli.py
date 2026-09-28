@@ -575,13 +575,12 @@ def test_every_other_command_keeps_output_dir(tmp_path, source, cli_help):
 def test_init_creates_the_ide_files(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == EXIT_OK
-    assert (tmp_path / "controllerpy_api.pyi").exists()
     assert (tmp_path / "pyrightconfig.json").exists()
     assert (tmp_path / "main.py").exists()
     out = capsys.readouterr().out
     assert f"  {output.SUCCESS} Initialized ControllerPy project" in out
     created = out.split("Created:", 1)[1]
-    for name in ("controllerpy_api.pyi", "pyrightconfig.json", "main.py"):
+    for name in ("pyrightconfig.json", "main.py"):
         assert f"    {name}" in created
     assert "Your IDE is now configured for ControllerPy." in out
     assert "controllerpy check main.py" in out
@@ -730,7 +729,8 @@ def test_check_and_build_accept_the_init_generated_header(tmp_path, monkeypatch)
     header = (tmp_path / "main.py").read_text(encoding="utf-8")
     assert "from builtins import *" in header
     assert "from controllerpy_api import *" in header
-    (tmp_path / "main.py").write_text(header + "\n" + PROGRAM, encoding="utf-8")
+    imports = header[: header.index("def ")]
+    (tmp_path / "main.py").write_text(imports + PROGRAM, encoding="utf-8")
     assert main(["check", "main.py"]) == EXIT_OK
     assert main(["build", "main.py"]) == EXIT_OK
     ino = (tmp_path / "build" / "main.ino").read_text(encoding="utf-8")
