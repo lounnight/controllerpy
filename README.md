@@ -482,7 +482,7 @@ controllerpy/
 ├── pyproject.toml
 ├── main.py                     the acceptance example from the spec
 ├── compiler.py                 deprecated single-file prototype (kept)
-├── examples/                   blink, button, loops, oop, serial
+├── examples/                   blink, button, loops, oop, serial, servo
 ├── src/                        the controllerpy package
 │   ├── cli/                    the argparse front end
 │   │   ├── main.py               entry point: parse, dispatch, errors -> exit code
