@@ -1332,6 +1332,73 @@ def test_reading_a_nested_struct_field_through_an_index(result):
     assert compiled.context.setup_info.locals["value"].cpp_type == "int"
 
 
+def test_a_new_struct_can_be_assigned_to_an_array_element(result):
+    compiled = result(STRUCT_ARRAY_SHELL.format(line="readings[0] = Reading()"))
+    readings = compiled.context.globals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.is_array is True
+
+
+def test_a_struct_variable_can_be_assigned_to_an_array_element(result):
+    compiled = result(
+        STRUCT_ARRAY_SHELL.format(line="reading = Reading()\n    readings[0] = reading")
+    )
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_an_int_assigned_to_a_struct_array_element_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="readings[0] = 123"),
+        message="Array 'readings' holds Reading values, not int.",
+    )
+
+
+def test_another_struct_assigned_to_a_struct_array_element_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="readings[0] = Note()")
+        + "\nclass Note:\n    text: str\n",
+        message="Array 'readings' holds Reading values, not Note.",
+    )
+
+
+def test_an_int_assigned_to_a_nested_struct_array_element_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            samples[0] = 7
+
+        def loop():
+            pass
+        """,
+        message="Array 'samples' holds Sample values, not int.",
+    )
+
+
+def test_a_struct_assigned_to_a_scalar_array_element_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            values = [1, 2, 3]
+            values[0] = Reading()
+
+        def loop():
+            pass
+        """,
+        message="Array 'values' holds int values, not Reading.",
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(

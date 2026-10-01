@@ -544,6 +544,12 @@ class BodyAnalyzer(ast.NodeVisitor):
             if index_type not in ("int", "bool", "char", UNKNOWN_TYPE):
                 self.ctx.error(target.slice, "Array indices must be integers.")
             var.write_count += 1
+            element_type = self._variable_type(var)
+            for observed in types:
+                if observed in (None, UNKNOWN_TYPE):
+                    continue
+                if merge_types(element_type, observed) == CONFLICT_TYPE:
+                    self.ctx.error(target, f"Array '{base.id}' holds {element_type} values, not {observed}.")
             return
 
         self.ctx.error(target, "Unsupported assignment target.")

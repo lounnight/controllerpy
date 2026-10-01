@@ -1666,6 +1666,55 @@ def test_indexing_nested_struct_fields_through_an_array(program):
     assert "    samples[1].first.value = 7;\n" in cpp
 
 
+def test_a_whole_struct_can_be_assigned_to_an_array_element(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            reading = Reading()
+            reading.value = 4
+            readings[0] = Reading()
+            readings[1] = reading
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings[0] = Reading();\n" in cpp
+    assert "    readings[1] = reading;\n" in cpp
+
+
+def test_a_whole_struct_can_be_assigned_to_a_nested_struct_array_element(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            samples[0] = Sample()
+            samples[1] = samples[0]
+
+        def loop():
+            pass
+        """
+    )
+    assert "    samples[0] = Sample();\n" in cpp
+    assert "    samples[1] = samples[0];\n" in cpp
+
+
 # ---------------------------------------------------------------- formatting
 def test_generated_code_is_consistently_formatted(program, result):
     cpp = program(
