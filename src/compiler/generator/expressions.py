@@ -187,7 +187,7 @@ class ExpressionEmitter:
                 if isinstance(base, ast.Name):
                     array = self.name(base.id)
                     tracked = self.ctx.tracked_arrays.get(id(base))
-                    if tracked is not None and tracked.append_count:
+                    if tracked is not None and tracked.has_count:
                         return self.ctx.count_name(base.id)
                     return f"(sizeof({array}) / sizeof({array}[0]))"
                 self.ctx.error(node, "Internal error: len() on an unsupported expression")
@@ -199,6 +199,8 @@ class ExpressionEmitter:
         if isinstance(func, ast.Attribute):
             if func.attr == "append" and isinstance(func.value, ast.Name):
                 return f"{self.expr(func.value)}[{self.ctx.count_name(func.value.id)}++] = {args}"
+            if func.attr == "pop" and isinstance(func.value, ast.Name):
+                return f"{self.expr(func.value)}[--{self.ctx.count_name(func.value.id)}]"
             if isinstance(func.value, ast.Name) and func.value.id == "self":
                 return f"this->{self.name(func.attr)}({args})"
             return f"{self.expr(func.value)}.{self._member_name(func.value, func.attr)}({args})"

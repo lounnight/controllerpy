@@ -1811,6 +1811,121 @@ def test_a_struct_with_struct_fields_can_be_appended(program):
     assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
 
 
+def test_a_popped_struct_decrements_the_count_and_reads_the_last_element(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            reading = readings.pop()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2] = {Reading(), Reading()};\n" in cpp
+    assert "int readings_count = 2;\n" in cpp
+    assert "    Reading reading = readings[--readings_count];\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_pop_used_as_a_statement_only_decrements_the_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.pop()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    --readings_count;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+    assert "readings[--readings_count];" not in cpp
+
+
+def test_a_popped_struct_can_be_read_afterwards(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            sample = samples.pop()
+            first = sample.first
+            value = first.value
+
+        def loop():
+            pass
+        """
+    )
+    assert "int samples_count = 2;\n" in cpp
+    assert "    Sample sample = samples[--samples_count];\n" in cpp
+    assert "    Reading first = sample.first;\n" in cpp
+    assert "    int value = first.value;\n" in cpp
+
+
+def test_a_pop_after_appends_uses_the_same_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.append(Reading())
+            reading = readings.pop()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2];\n" in cpp
+    assert "int readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert "    Reading reading = readings[--readings_count];\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_local_popped_list_reflects_the_count_in_len(program):
+    cpp = program(
+        """
+        def main():
+            readings = [1, 2, 3]
+            size = len(readings)
+            biggest = readings.pop()
+            after = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int readings[3] = {1, 2, 3};\n" in cpp
+    assert "    int readings_count = 3;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+    assert "    int biggest = readings[--readings_count];\n" in cpp
+    assert "    int after = readings_count;\n" in cpp
+
+
 # ---------------------------------------------------------------- formatting
 def test_generated_code_is_consistently_formatted(program, result):
     cpp = program(

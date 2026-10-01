@@ -801,6 +801,8 @@ class BodyAnalyzer(ast.NodeVisitor):
                 hint="readings.append(Reading())",
             )
             return UNKNOWN_TYPE
+        if attr == "pop":
+            return self._pop_call_type(node, base, arg_types)
         base_type = self._type(base)
         if base_type in ARDUINO_OBJECTS:
             return UNKNOWN_TYPE
@@ -873,6 +875,46 @@ class BodyAnalyzer(ast.NodeVisitor):
         var.append_count += 1
         var.write_count += 1
         return VOID_TYPE
+
+    def _pop_call_type(self, node: ast.Call, base: ast.AST, arg_types: Sequence[str]) -> str:
+        if self.in_runtime_flow:
+            self.ctx.error(
+                node,
+                "pop() cannot be used in runtime control flow because the list length changes at compile time.",
+                hint="Call pop() once for every value in main().",
+            )
+            return UNKNOWN_TYPE
+        if self.entry_name != "main":
+            self.ctx.error(
+                node,
+                "pop() can only be used in main() because the list length changes at compile time.",
+                hint="Move the pop() calls into main().",
+            )
+            return UNKNOWN_TYPE
+        if not isinstance(base, ast.Name):
+            self.ctx.error(node, "pop() needs a list variable.", hint="values = [1, 2]  then  value = values.pop()")
+            return UNKNOWN_TYPE
+        var = self.scope.lookup(base.id)
+        if var is None:
+            self.ctx.error(base, f"'{base.id}' is not defined.")
+            return UNKNOWN_TYPE
+        if not var.is_array:
+            self.ctx.error(node, f"'{base.id}' is not a list, so no value can be popped from it.")
+            return UNKNOWN_TYPE
+        self._check_arity(node, "pop", len(node.args), 0, 0)
+        if var.guaranteed_count < 1:
+            self.ctx.error(
+                node,
+                f"pop() cannot remove a value because '{base.id}' may be empty.",
+                hint="Append a value before popping one.",
+            )
+            return UNKNOWN_TYPE
+        var.pop_count += 1
+        var.write_count += 1
+        element_type = self._variable_type(var)
+        if element_type in (UNKNOWN_TYPE, CONFLICT_TYPE):
+            return UNKNOWN_TYPE
+        return element_type
 
     def _len_type(self, node: ast.Call) -> str:
         self._check_arity(node, "len", len(node.args), 1, 1)

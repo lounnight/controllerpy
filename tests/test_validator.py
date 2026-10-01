@@ -1653,6 +1653,179 @@ def test_append_in_a_method_is_rejected(error):
     )
 
 
+POP_SHELL = """
+class Reading:
+    value: int
+    bright: bool
+
+class Sample:
+    first: Reading
+
+readings = [Reading(), Reading()]
+"""
+POP_FLOW = "pop() cannot be used in runtime control flow because the list length changes at compile time."
+POP_OUTSIDE = "pop() can only be used in main() because the list length changes at compile time."
+
+
+def test_pop_used_as_a_statement_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.pop()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].pop_count == 1
+
+
+def test_a_popped_value_has_the_element_type(result):
+    compiled = result(POP_SHELL + "def main():\n    reading = readings.pop()\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_a_popped_struct_can_be_read_afterwards(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    reading = readings.pop()\n    value = reading.value\n    bright = reading.bright\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["value"].cpp_type == "int"
+    assert compiled.context.setup_info.locals["bright"].cpp_type == "bool"
+
+
+def test_a_popped_struct_field_is_checked(error):
+    error(
+        POP_SHELL + "def main():\n    reading = readings.pop()\n    value = reading.missing\n\ndef loop():\n    pass\n",
+        message="Class 'Reading' has no attribute 'missing'.",
+    )
+
+
+def test_a_popped_nested_struct_keeps_its_type(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            sample = samples.pop()
+            first = sample.first
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.setup_info.locals["sample"].cpp_type == "Sample"
+    assert compiled.context.setup_info.locals["first"].cpp_type == "Reading"
+
+
+def test_every_pop_is_counted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.pop()\n    readings.pop()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].pop_count == 2
+
+
+def test_pop_after_an_append_is_accepted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            reading = readings.pop()
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+    assert compiled.context.globals["readings"].pop_count == 1
+
+
+def test_a_local_list_can_be_popped_from(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+            size = len(readings)
+            reading = readings.pop()
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.setup_info.locals["readings"]
+    assert readings.pop_count == 1
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+    assert compiled.context.setup_info.locals["size"].cpp_type == "int"
+
+
+def test_pop_from_an_empty_list_is_rejected(error):
+    error(
+        "readings = []\n\ndef main():\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+        hint="Append a value before popping one.",
+    )
+
+
+def test_pop_before_an_append_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.pop()
+            readings.append(Reading())
+
+        def loop():
+            pass
+        """,
+        message="pop() cannot remove a value because 'readings' may be empty.",
+    )
+
+
+def test_more_pops_than_values_are_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.pop()\n    readings.pop()\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+    )
+
+
+def test_pop_with_an_argument_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.pop(0)\n\ndef loop():\n    pass\n",
+        message="pop() takes exactly 0 arguments but 1 was given.",
+    )
+
+
+def test_pop_from_a_value_that_is_not_a_list_is_rejected(error):
+    error(
+        "def main():\n    value = 1\n    value.pop()\n\ndef loop():\n    pass\n",
+        message="'value' is not a list, so no value can be popped from it.",
+    )
+
+
+def test_pop_in_loop_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    pass\n\ndef loop():\n    readings.pop()\n",
+        message=POP_OUTSIDE,
+        hint="Move the pop() calls into main().",
+    )
+
+
+def test_pop_in_runtime_control_flow_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    for i in range(3):\n        if True:\n            readings.pop()\n\ndef loop():\n    pass\n",
+        message=POP_FLOW,
+        hint="Call pop() once for every value in main().",
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(

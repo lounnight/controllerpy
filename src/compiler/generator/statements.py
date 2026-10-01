@@ -147,7 +147,7 @@ class StatementEmitter:
         elif isinstance(stmt, ast.AugAssign):
             self._emit_augassign(stmt)
         elif isinstance(stmt, ast.Expr):
-            self.w.line(f"{self.exprs.expr(stmt.value)};")
+            self._emit_expr_statement(stmt)
         elif isinstance(stmt, ast.If):
             self._emit_if(stmt)
         elif isinstance(stmt, ast.While):
@@ -164,6 +164,18 @@ class StatementEmitter:
             self.w.line("continue;")
         else:  # pragma: no cover - defensive
             self.ctx.error(stmt, f"Internal error: unhandled statement {type(stmt).__name__}")
+
+    def _emit_expr_statement(self, node: ast.Expr) -> None:
+        call = node.value
+        if (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "pop"
+            and isinstance(call.func.value, ast.Name)
+        ):
+            self.w.line(f"--{self.ctx.count_name(call.func.value.id)};")
+            return
+        self.w.line(f"{self.exprs.expr(node.value)};")
 
     def _emit_assign(self, node: ast.Assign) -> None:
         targets = list(node.targets)
@@ -240,11 +252,15 @@ class StatementEmitter:
             if local is not None and local.declare_node is stmt:
                 if local.is_array and not local.array_len:
                     self.w.line(f"{self.decl.declaration(local)};")
-                elif self.ctx.is_object_type(local.cpp_type) and isinstance(value, ast.Call):
+                elif (
+                    self.ctx.is_object_type(local.cpp_type)
+                    and isinstance(value, ast.Call)
+                    and isinstance(value.func, ast.Name)
+                ):
                     self.w.line(f"{self.decl.object_declaration(local, value)};")
                 else:
                     self.w.line(f"{self.decl.declaration(local)} = {self.exprs.value(value)};")
-                if local.append_count:
+                if local.has_count:
                     self.w.line(f"{self.decl.counter_declaration(local)};")
             else:
                 self.w.line(f"{self.decl.name(target.id)} = {self.exprs.value(value)};")

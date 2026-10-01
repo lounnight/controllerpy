@@ -26,6 +26,7 @@ class VarInfo:
     is_array: bool = False
     array_len: Optional[int] = None
     append_count: int = 0
+    pop_count: int = 0
     is_object: bool = False
     is_external: bool = False
     declare_node: Optional[ast.AST] = None
@@ -54,6 +55,14 @@ class VarInfo:
             return self.cpp_type if self.cpp_type != UNKNOWN_TYPE else DEFAULT_TYPE
         
         return final
+
+    @property
+    def has_count(self) -> bool:
+        return bool(self.append_count or self.pop_count)
+
+    @property
+    def guaranteed_count(self) -> int:
+        return (self.array_len or 0) + self.append_count - self.pop_count
 
 
 @dataclass
