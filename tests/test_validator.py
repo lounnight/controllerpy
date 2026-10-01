@@ -1233,6 +1233,105 @@ def test_a_list_mixing_a_struct_and_an_int_is_rejected(error):
     )
 
 
+STRUCT_ARRAY_SHELL = """
+class Reading:
+    value: int
+    bright: bool
+
+readings = [
+    Reading(),
+    Reading(),
+]
+
+def main():
+    {line}
+
+def loop():
+    pass
+"""
+
+
+def test_reading_a_struct_array_element_is_a_struct(result):
+    compiled = result(STRUCT_ARRAY_SHELL.format(line="value = readings[0]"))
+    assert compiled.context.setup_info.locals["value"].cpp_type == "Reading"
+
+
+def test_reading_an_int_field_through_an_index_is_an_int(result):
+    compiled = result(STRUCT_ARRAY_SHELL.format(line="value = readings[0].value"))
+    assert compiled.context.setup_info.locals["value"].cpp_type == "int"
+
+
+def test_reading_a_bool_field_through_an_index_is_a_bool(result):
+    compiled = result(STRUCT_ARRAY_SHELL.format(line="bright = readings[0].bright"))
+    assert compiled.context.setup_info.locals["bright"].cpp_type == "bool"
+
+
+def test_writing_fields_through_an_index_is_accepted(result):
+    compiled = result(
+        STRUCT_ARRAY_SHELL.format(line="readings[0].value = 123\n    readings[0].bright = True")
+    )
+    assert compiled.context.classes["Reading"].fields["value"].cpp_type == "int"
+    assert compiled.context.classes["Reading"].fields["bright"].cpp_type == "bool"
+
+
+def test_a_struct_element_can_be_passed_to_a_function(result):
+    compiled = result(
+        STRUCT_ARRAY_SHELL.format(line="value = brightness(readings[1])")
+        + "\ndef brightness(reading: Reading) -> bool:\n    return reading.bright\n"
+    )
+    assert compiled.context.setup_info.locals["value"].cpp_type == "bool"
+
+
+def test_writing_a_wrong_type_through_an_index_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="readings[0].value = 'text'"),
+        message="'value' is assigned values of incompatible types.",
+    )
+
+
+def test_a_float_index_into_a_struct_array_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="value = readings[1.5].value"),
+        message="Array indices must be integers.",
+    )
+
+
+def test_reading_an_unknown_field_through_an_index_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="value = readings[0].missing"),
+        message="Class 'Reading' has no attribute 'missing'.",
+    )
+
+
+def test_indexing_a_struct_element_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="value = readings[0][0]"),
+        message="Only arrays can be indexed.",
+    )
+
+
+def test_reading_a_nested_struct_field_through_an_index(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            value = samples[0].first.value
+            samples[1].first.value = 7
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.setup_info.locals["value"].cpp_type == "int"
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(

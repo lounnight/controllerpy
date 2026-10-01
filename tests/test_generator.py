@@ -1593,6 +1593,79 @@ def test_a_list_of_structs_with_nested_struct_fields_becomes_a_cpp_array(program
     assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
 
 
+def test_indexing_a_struct_array_reads_elements_and_fields(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            element = readings[0]
+            value = readings[0].value
+            bright = readings[1].bright
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Reading element = readings[0];\n" in cpp
+    assert "    int value = readings[0].value;\n" in cpp
+    assert "    bool bright = readings[1].bright;\n" in cpp
+
+
+def test_indexing_a_struct_array_writes_fields(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            readings[0].value = 123
+            readings[1].bright = True
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings[0].value = 123;\n" in cpp
+    assert "    readings[1].bright = true;\n" in cpp
+
+
+def test_indexing_nested_struct_fields_through_an_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            value = samples[0].first.value
+            samples[1].first.value = 7
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int value = samples[0].first.value;\n" in cpp
+    assert "    samples[1].first.value = 7;\n" in cpp
+
+
 # ---------------------------------------------------------------- formatting
 def test_generated_code_is_consistently_formatted(program, result):
     cpp = program(
