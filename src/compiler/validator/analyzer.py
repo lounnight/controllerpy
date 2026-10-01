@@ -28,6 +28,7 @@ from .symbols import ClassInfo, FunctionInfo, MethodInfo, Scope, VarInfo
 from .types import (
     CONFLICT_TYPE,
     DEFAULT_TYPE,
+    SCALAR_TYPES,
     UNKNOWN_TYPE,
     VOID_TYPE,
     merge_types,
@@ -645,6 +646,8 @@ class BodyAnalyzer(ast.NodeVisitor):
             self.ctx.error(node, f"'{name}' is a function; call it like {name}(...)")
         if name == "String":
             self.ctx.error(node, "'String' must be called: String(value)")
+        if name == "str":
+            self.ctx.error(node, "'str' must be called: str(value)")
         if name in self.ctx.classes:
             self.ctx.error(node, f"'{name}' is a class; create an object with {name}(...)")
         var = self.scope.lookup(name)
@@ -730,6 +733,8 @@ class BodyAnalyzer(ast.NodeVisitor):
             return merged or UNKNOWN_TYPE
         if name == "len":
             return self._len_type(node)
+        if name == "str":
+            return self._str_type(node, arg_types)
         if name == "String":
             return "String"
         if name == "range":
@@ -1040,6 +1045,17 @@ class BodyAnalyzer(ast.NodeVisitor):
             hint="values = [1, 2, 3]  then  len(values)",
         )
         return "int"  # pragma: no cover
+
+    def _str_type(self, node: ast.Call, arg_types: Sequence[str]) -> str:
+        self._check_arity(node, "str", len(node.args), 1, 1)
+        arg_type = arg_types[0]
+        if arg_type not in SCALAR_TYPES and arg_type != UNKNOWN_TYPE:
+            self.ctx.error(
+                node,
+                f"str() cannot convert a {arg_type} value.",
+                hint="str() supports int, float, bool, and string values.",
+            )
+        return "String"
 
     def _subscript_type(self, node: ast.Subscript) -> str:
         base = node.value

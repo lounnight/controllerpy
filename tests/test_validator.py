@@ -2418,6 +2418,133 @@ def test_unsupported_augmented_assignment_is_rejected(error):
     )
 
 
+def test_str_of_an_int_is_the_string_type(result):
+    compiled = result("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_a_float_is_the_string_type(result):
+    compiled = result("def main():\n    text = str(1.5)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_a_bool_is_the_string_type(result):
+    compiled = result("def main():\n    text = str(True)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_a_string_literal_is_the_string_type(result):
+    compiled = result("def main():\n    text = str('hi')\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_an_annotated_string_is_the_string_type(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = str(label)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_result_can_be_assigned_to_an_annotated_string(result):
+    compiled = result("def main():\n    text: str = str(7)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_result_can_fill_a_struct_string_field(result):
+    compiled = result(
+        """
+        class Reading:
+            label: str
+            level: int
+
+        def main():
+            reading = Reading()
+            reading.label = str(reading.level)
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.classes["Reading"].fields["label"].cpp_type == "String"
+
+
+def test_str_result_can_be_printed(result):
+    compiled = result(
+        "def main():\n    serial_print(str(7))\n    serial_println(str(True))\n\ndef loop():\n    pass\n"
+    )
+    assert "Serial.print(String(7));" in compiled.cpp
+    assert 'Serial.println(String(true ? "True" : "False"));' in compiled.cpp
+
+
+def test_str_can_be_nested(result):
+    compiled = result("def main():\n    text = str(str(7))\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_an_api_call_is_accepted(result):
+    compiled = result("def main():\n    text = str(analog_read(0))\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_in_runtime_control_flow_is_accepted(result):
+    compiled = result(
+        "def main():\n    count = 0\n    while count < 3:\n        serial_println(str(count))\n        count += 1\n\ndef loop():\n    pass\n"
+    )
+    assert "Serial.println(String(count));" in compiled.cpp
+
+
+def test_str_without_arguments_is_rejected(error):
+    error(
+        "def main():\n    str()\n\ndef loop():\n    pass\n",
+        message="str() takes exactly 1 argument but 0 were given.",
+    )
+
+
+def test_str_with_two_arguments_is_rejected(error):
+    error(
+        "def main():\n    str(1, 2)\n\ndef loop():\n    pass\n",
+        message="str() takes exactly 1 argument but 2 were given.",
+    )
+
+
+def test_str_of_a_struct_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            reading = Reading()
+            text = str(reading)
+
+        def loop():
+            pass
+        """,
+        message="str() cannot convert a Reading value.",
+        hint="str() supports int, float, bool, and string values.",
+    )
+
+
+def test_str_of_a_list_is_rejected(error):
+    error(
+        "def main():\n    values = [1, 2, 3]\n    text = str(values)\n\ndef loop():\n    pass\n",
+        message="Array 'values' cannot be used as a value.",
+    )
+
+
+def test_str_of_an_arduino_object_is_rejected(error):
+    error(
+        "def main():\n    text = str(Serial)\n\ndef loop():\n    pass\n",
+        message="str() cannot convert a Serial value.",
+        hint="str() supports int, float, bool, and string values.",
+    )
+
+
+def test_str_bare_name_is_rejected(error):
+    error(
+        "def main():\n    str\n\ndef loop():\n    pass\n",
+        message="'str' must be called: str(value)",
+    )
+
+
 # ---------------------------------------------------------------- annotations
 def test_unknown_annotation_is_rejected(error):
     error(

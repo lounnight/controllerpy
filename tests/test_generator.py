@@ -686,6 +686,101 @@ def test_string_annotation_uses_the_arduino_string_class(program):
     assert 'String label = "hi";' in cpp
 
 
+def test_str_of_an_int_uses_the_arduino_string_class(program):
+    cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
+    assert "    String text = String(counter);\n" in cpp
+
+
+def test_str_of_a_float_uses_the_arduino_string_class(program):
+    cpp = program("def main():\n    text = str(1.5)\n\ndef loop():\n    pass\n")
+    assert "    String text = String(1.5);\n" in cpp
+
+
+def test_str_of_a_bool_prints_the_python_spelling(program):
+    cpp = program(
+        "def main():\n    text = str(True)\n    other = str(1 < 2)\n\ndef loop():\n    pass\n"
+    )
+    assert '    String text = String(true ? "True" : "False");\n' in cpp
+    assert '    String other = String(1 < 2 ? "True" : "False");\n' in cpp
+
+
+def test_str_of_a_string_literal_keeps_the_literal(program):
+    cpp = program("def main():\n    text = str('hi')\n\ndef loop():\n    pass\n")
+    assert "    String text = \"hi\";\n" in cpp
+    assert "String(" not in cpp
+
+
+def test_str_of_a_string_value_is_an_identity(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = str(label)\n\ndef loop():\n    pass\n")
+    assert "    String text = label;\n" in cpp
+    assert "String(" not in cpp.split("String label = ")[1]
+
+
+def test_str_of_a_nested_str_is_an_identity(program):
+    cpp = program("def main():\n    text = str(str(7))\n\ndef loop():\n    pass\n")
+    assert "    String text = String(7);\n" in cpp
+    assert cpp.count("String(") == 1
+
+
+def test_str_result_can_be_printed(program):
+    cpp = program(
+        """
+        def main():
+            serial_print(str(7))
+            serial_println(str(1.5))
+            serial_println(str(True))
+            serial_print(str('hi'))
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Serial.print(String(7));\n" in cpp
+    assert "    Serial.println(String(1.5));\n" in cpp
+    assert '    Serial.println(String(true ? "True" : "False"));\n' in cpp
+    assert '    Serial.print("hi");\n' in cpp
+
+
+def test_str_result_can_fill_a_struct_string_field(program):
+    cpp = program(
+        """
+        class Reading:
+            label: str
+            level: int
+
+        def main():
+            reading = Reading()
+            reading.label = str(reading.level)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    String label;\n    int level;\n};\n" in cpp
+    assert "    reading.label = String(reading.level);\n" in cpp
+
+
+def test_str_of_an_api_call_is_generated(program):
+    cpp = program("def main():\n    serial_println(str(analog_read(0)))\n\ndef loop():\n    pass\n")
+    assert "    Serial.println(String(analogRead(0)));\n" in cpp
+
+
+def test_str_is_available_inside_runtime_control_flow(program):
+    cpp = program(
+        """
+        def main():
+            count = 0
+            while count < 3:
+                serial_println(str(count))
+                count += 1
+
+        def loop():
+            pass
+        """
+    )
+    assert "        Serial.println(String(count));\n" in cpp
+
+
 def test_pass_produces_an_empty_block(program):
     cpp = program("def main():\n    pass\n\ndef loop():\n    pass\n")
     assert "void setup() {\n}" in cpp

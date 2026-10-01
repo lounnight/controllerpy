@@ -191,6 +191,8 @@ class ExpressionEmitter:
                         return self.ctx.count_name(base.id)
                     return f"(sizeof({array}) / sizeof({array}[0]))"
                 self.ctx.error(node, "Internal error: len() on an unsupported expression")
+            if name == "str":
+                return self._str_call(node)
             if name == "String":
                 return f"String({args})"
             if name in self.ctx.classes or name in self.ctx.functions or name in self.ctx.external_types:
@@ -207,6 +209,16 @@ class ExpressionEmitter:
         self.ctx.error(node, "Internal error: unsupported call expression")
 
         return ""
+
+    def _str_call(self, node: ast.Call) -> str:
+        arg = node.args[0]
+        value = self.value(arg)
+        arg_type = self.type_of(arg)
+        if arg_type == "bool":
+            return f'String({value} ? "True" : "False")'
+        if arg_type in ("String", "const char*"):
+            return value
+        return f"String({value})"
 
     def _binop(self, node: ast.BinOp) -> Tuple[str, int]:
         op = node.op

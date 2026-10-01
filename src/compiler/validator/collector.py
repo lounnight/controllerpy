@@ -391,7 +391,7 @@ class Validator:
             api = API_FUNCTIONS.get(name)
             if api is not None:
                 return "serial" if api.receiver else "api"
-            if name in BUILTIN_FUNCTIONS or name in ("len", "String"):
+            if name in BUILTIN_FUNCTIONS or name in ("len", "str", "String"):
                 return "builtin"
             if name in self.ctx.functions:
                 return "user"
