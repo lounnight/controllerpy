@@ -1558,6 +1558,101 @@ def test_a_list_declared_inside_a_block_cannot_be_appended_to(error):
     )
 
 
+APPEND_FLOW = "append() cannot be used in runtime control flow because the list capacity is set at compile time."
+APPEND_OUTSIDE = "append() can only be used in main() because the list capacity is set at compile time."
+
+
+def test_append_in_straight_line_main_is_accepted(result):
+    compiled = result(
+        APPEND_SHELL
+        + "def main():\n    readings.append(Reading())\n    readings.append(Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].append_count == 2
+
+
+def test_append_in_main_around_control_flow_is_accepted(result):
+    compiled = result(
+        APPEND_SHELL
+        + "def main():\n"
+        "    readings.append(Reading())\n"
+        "    on = True\n"
+        "    if on:\n"
+        "        on = False\n"
+        "    readings.append(Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].append_count == 2
+
+
+def test_append_in_loop_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    pass\n\ndef loop():\n    readings.append(Reading())\n",
+        message=APPEND_OUTSIDE,
+        hint="Move the append() calls into main().",
+    )
+
+
+def test_append_in_an_if_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    if True:\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+        hint="Call append() once for every value in main().",
+    )
+
+
+def test_append_in_an_elif_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "def main():\n    if True:\n        pass\n    elif False:\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_an_else_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    if True:\n        pass\n    else:\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_a_while_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "def main():\n    while False:\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_a_for_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    for i in range(3):\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_nested_runtime_flow_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "def main():\n    for i in range(3):\n        while False:\n            readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_a_function_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "def store():\n    readings.append(Reading())\n\ndef main():\n    store()\n\ndef loop():\n    pass\n",
+        message=APPEND_OUTSIDE,
+    )
+
+
+def test_append_in_a_method_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "class Sensor:\n    def store(self):\n        readings.append(Reading())\n\ndef main():\n    sensor = Sensor()\n\ndef loop():\n    pass\n",
+        message=APPEND_OUTSIDE,
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(

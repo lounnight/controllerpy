@@ -68,6 +68,7 @@ class BodyAnalyzer(ast.NodeVisitor):
         self.owner: Optional[object] = None
         self.class_info: Optional[ClassInfo] = None
         self.entry_name: Optional[str] = None
+        self.in_runtime_flow = False
 
     # ---------------------------------------------------------------- guards
     def generic_visit(self, node: ast.AST) -> None:  # pragma: no cover - safety net
@@ -183,16 +184,24 @@ class BodyAnalyzer(ast.NodeVisitor):
         entry_name: Optional[str],
         body: Sequence[ast.stmt],
     ) -> None:
-        previous = (self.scope, self.owner, self.class_info, self.entry_name)
+        previous = (self.scope, self.owner, self.class_info, self.entry_name, self.in_runtime_flow)
         self.scope, self.owner, self.class_info, self.entry_name = scope, owner, class_info, entry_name
         try:
             self._analyze_body(body)
         finally:
-            self.scope, self.owner, self.class_info, self.entry_name = previous
+            (self.scope, self.owner, self.class_info, self.entry_name, self.in_runtime_flow) = previous
 
     def _analyze_body(self, body: Sequence[ast.stmt]) -> None:
         for stmt in body:
             self.visit(stmt)
+
+    def _analyze_runtime_body(self, body: Sequence[ast.stmt]) -> None:
+        previous = self.in_runtime_flow
+        self.in_runtime_flow = True
+        try:
+            self._analyze_body(body)
+        finally:
+            self.in_runtime_flow = previous
 
     def _prepare_locals(
         self,
@@ -388,14 +397,14 @@ class BodyAnalyzer(ast.NodeVisitor):
 
     def visit_If(self, node: ast.If) -> None:
         self._type(node.test)
-        self._analyze_body(node.body)
-        self._analyze_body(node.orelse)
+        self._analyze_runtime_body(node.body)
+        self._analyze_runtime_body(node.orelse)
 
     def visit_While(self, node: ast.While) -> None:
         if node.orelse:
             self.ctx.error(node, "Unsupported Python feature: while/else")
         self._type(node.test)
-        self._analyze_body(node.body)
+        self._analyze_runtime_body(node.body)
 
     def visit_For(self, node: ast.For) -> None:
         if node.orelse:
@@ -414,7 +423,7 @@ class BodyAnalyzer(ast.NodeVisitor):
                 hint="Use a while loop for anything else.",
             )
         self._check_range(iterator)
-        self._analyze_body(node.body)
+        self._analyze_runtime_body(node.body)
 
     def _check_range(self, call: ast.Call) -> None:
         if call.keywords:
@@ -830,6 +839,20 @@ class BodyAnalyzer(ast.NodeVisitor):
                 self.ctx.error(node.args[index - 1], f"Argument {index} of {label}() must be {declared}, not {inferred}.")
 
     def _append_call_type(self, node: ast.Call, base: ast.AST, arg_types: Sequence[str]) -> str:
+        if self.in_runtime_flow:
+            self.ctx.error(
+                node,
+                "append() cannot be used in runtime control flow because the list capacity is set at compile time.",
+                hint="Call append() once for every value in main().",
+            )
+            return UNKNOWN_TYPE
+        if self.entry_name != "main":
+            self.ctx.error(
+                node,
+                "append() can only be used in main() because the list capacity is set at compile time.",
+                hint="Move the append() calls into main().",
+            )
+            return UNKNOWN_TYPE
         if not isinstance(base, ast.Name):
             self.ctx.error(node, "append() needs a list variable.", hint="values = [1, 2]  then  values.append(3)")
             return UNKNOWN_TYPE
