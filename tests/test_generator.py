@@ -2069,6 +2069,197 @@ def test_a_struct_with_struct_fields_can_be_inserted(program):
     assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
 
 
+def test_clearing_a_list_resets_its_counter(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings_count = 0;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_clearing_a_list_keeps_its_capacity(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2] = {Reading(), Reading()};\n" in cpp
+    assert "readings[3]" not in cpp
+    assert "readings.clear();" not in cpp
+    assert "controllerpy_shift" not in cpp
+
+
+def test_clearing_a_list_of_primitives_keeps_its_array(program):
+    cpp = program(
+        """
+        readings = [1, 2, 3]
+
+        def main():
+            readings.clear()
+
+        def loop():
+            pass
+        """
+    )
+    assert "int readings[3] = {1, 2, 3};\n" in cpp
+    assert "int readings_count = 3;\n" in cpp
+    assert "    readings_count = 0;\n" in cpp
+
+
+def test_clearing_a_local_list_resets_its_counter(program):
+    cpp = program(
+        """
+        def main():
+            readings = [1, 2, 3]
+            readings.clear()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int readings[3] = {1, 2, 3};\n" in cpp
+    assert "    int readings_count = 3;\n" in cpp
+    assert "    readings_count = 0;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_list_can_be_appended_to_after_it_is_cleared(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+            readings.append(Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_cleared_list_can_be_popped_after_an_append(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+            readings.append(Reading())
+            reading = readings.pop()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert "    Reading reading = readings[--readings_count];\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_cleared_list_can_be_inserted_into(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+            readings.insert(0, Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings_count = 0;\n" in cpp
+    assert "controllerpy_shift = readings_count" in cpp
+    assert "    readings[0] = Reading();\n" in cpp
+    assert "    readings_count++;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_list_can_be_cleared_more_than_once(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.append(Reading())
+            readings.clear()
+            readings.clear()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.count("    readings_count = 0;\n") == 2
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_clearing_a_list_filled_only_by_an_append(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.clear()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[1];\n" in cpp
+    assert "int readings_count = 0;\n" in cpp
+    assert "    readings_count = 0;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
 # ---------------------------------------------------------------- formatting
 def test_generated_code_is_consistently_formatted(program, result):
     cpp = program(

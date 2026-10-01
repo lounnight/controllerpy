@@ -171,23 +171,28 @@ class StatementEmitter:
             isinstance(call, ast.Call)
             and isinstance(call.func, ast.Attribute)
             and isinstance(call.func.value, ast.Name)
-            and call.func.attr in ("insert", "pop")
         ):
-            base = self.exprs.expr(call.func.value)
-            count = self.ctx.count_name(call.func.value.id)
-            if call.func.attr == "pop":
+            base_name = call.func.value
+            count = self.ctx.count_name(base_name.id)
+            attr = call.func.attr
+            if attr == "pop":
                 self.w.line(f"--{count};")
                 return
-            index = constant_int(call.args[0]) or 0
-            shift = "controllerpy_shift"
-            self.w.line(f"for (int {shift} = {count}; {shift} > {index}; {shift}--) {{")
-            self.w.indent()
-            self.w.line(f"{base}[{shift}] = {base}[{shift} - 1];")
-            self.w.dedent()
-            self.w.line("}")
-            self.w.line(f"{base}[{index}] = {self.exprs.value(call.args[1])};")
-            self.w.line(f"{count}++;")
-            return
+            if attr == "clear":
+                self.w.line(f"{count} = 0;")
+                return
+            if attr == "insert":
+                index = constant_int(call.args[0]) or 0
+                shift = "controllerpy_shift"
+                base = self.exprs.expr(base_name)
+                self.w.line(f"for (int {shift} = {count}; {shift} > {index}; {shift}--) {{")
+                self.w.indent()
+                self.w.line(f"{base}[{shift}] = {base}[{shift} - 1];")
+                self.w.dedent()
+                self.w.line("}")
+                self.w.line(f"{base}[{index}] = {self.exprs.value(call.args[1])};")
+                self.w.line(f"{count}++;")
+                return
         self.w.line(f"{self.exprs.expr(node.value)};")
 
     def _emit_assign(self, node: ast.Assign) -> None:

@@ -397,6 +397,9 @@ class BodyAnalyzer(ast.NodeVisitor):
             if call.func.attr == "insert":
                 self._insert_call_type(call, call.func.value, [self._type(arg) for arg in call.args])
                 return
+            if call.func.attr == "clear":
+                self._clear_call_type(call, call.func.value)
+                return
         self._type(node.value)
 
     def visit_If(self, node: ast.If) -> None:
@@ -814,6 +817,13 @@ class BodyAnalyzer(ast.NodeVisitor):
                 hint="readings.insert(0, Reading())",
             )
             return VOID_TYPE
+        if attr == "clear":
+            self.ctx.error(
+                node,
+                "clear() has to be used as a statement.",
+                hint="readings.clear()",
+            )
+            return VOID_TYPE
         base_type = self._type(base)
         if base_type in ARDUINO_OBJECTS:
             return UNKNOWN_TYPE
@@ -983,6 +993,36 @@ class BodyAnalyzer(ast.NodeVisitor):
                 self.ctx.error(node.args[1], f"List '{base.id}' holds {element_type} values, not {arg_type}.")
         var.record_type(arg_type)
         var.insert_count += 1
+        var.write_count += 1
+        return VOID_TYPE
+
+    def _clear_call_type(self, node: ast.Call, base: ast.AST) -> str:
+        if self.in_runtime_flow:
+            self.ctx.error(
+                node,
+                "clear() cannot be used in runtime control flow because the list length changes at compile time.",
+                hint="Call clear() once for every time you need to reset the list in main().",
+            )
+            return VOID_TYPE
+        if self.entry_name != "main":
+            self.ctx.error(
+                node,
+                "clear() can only be used in main() because the list length changes at compile time.",
+                hint="Move the clear() calls into main().",
+            )
+            return VOID_TYPE
+        if not isinstance(base, ast.Name):
+            self.ctx.error(node, "clear() needs a list variable.", hint="values = [1, 2]  then  values.clear()")
+            return VOID_TYPE
+        var = self.scope.lookup(base.id)
+        if var is None:
+            self.ctx.error(base, f"'{base.id}' is not defined.")
+            return VOID_TYPE
+        if not var.is_array:
+            self.ctx.error(node, f"'{base.id}' is not a list, so it cannot be cleared.")
+            return VOID_TYPE
+        self._check_arity(node, "clear", len(node.args), 0, 0)
+        var.clear_growth = var.append_count + var.insert_count - var.pop_count
         var.write_count += 1
         return VOID_TYPE
 

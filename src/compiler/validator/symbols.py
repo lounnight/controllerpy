@@ -28,6 +28,7 @@ class VarInfo:
     append_count: int = 0
     insert_count: int = 0
     pop_count: int = 0
+    clear_growth: Optional[int] = None
     is_object: bool = False
     is_external: bool = False
     declare_node: Optional[ast.AST] = None
@@ -59,11 +60,14 @@ class VarInfo:
 
     @property
     def has_count(self) -> bool:
-        return bool(self.append_count or self.insert_count or self.pop_count)
+        return bool(self.append_count or self.insert_count or self.pop_count or self.clear_growth is not None)
 
     @property
     def guaranteed_count(self) -> int:
-        return (self.array_len or 0) + self.append_count + self.insert_count - self.pop_count
+        growth = self.append_count + self.insert_count - self.pop_count
+        if self.clear_growth is not None:
+            return growth - self.clear_growth
+        return (self.array_len or 0) + growth
 
 
 @dataclass

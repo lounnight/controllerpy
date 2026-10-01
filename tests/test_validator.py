@@ -2036,6 +2036,159 @@ def test_insert_in_runtime_control_flow_is_rejected(error):
     )
 
 
+CLEAR_FLOW = "clear() cannot be used in runtime control flow because the list length changes at compile time."
+CLEAR_OUTSIDE = "clear() can only be used in main() because the list length changes at compile time."
+
+
+def test_a_list_can_be_cleared(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].clear_growth == 0
+    assert compiled.context.globals["readings"].has_count
+
+
+def test_a_list_of_structs_can_be_cleared(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.clear()\n    size = len(readings)\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].array_len == 2
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_a_local_list_can_be_cleared(result):
+    compiled = result(
+        "def main():\n    readings = [1, 2, 3]\n    readings.clear()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["readings"].clear_growth == 0
+
+
+def test_clearing_an_empty_list_is_accepted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.clear()
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["readings"].append_count == 1
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_clearing_after_an_append_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.append(Reading())\n    readings.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].append_count == 1
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_clearing_after_an_insert_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.insert(0, Reading())\n    readings.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_clearing_after_a_pop_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.pop()\n    readings.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].pop_count == 1
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_more_clears_are_allowed(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.clear()\n    readings.append(Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].guaranteed_count == 1
+
+
+def test_a_pop_after_a_clear_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+        hint="Append a value before popping one.",
+    )
+
+
+def test_an_append_after_a_clear_can_be_popped(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.append(Reading())\n    reading = readings.pop()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_a_second_pop_after_an_append_and_a_clear_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    readings.clear()\n    readings.append(Reading())\n    readings.pop()\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+    )
+
+
+def test_an_insert_after_a_clear_is_accepted(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.insert(0, Reading())\n    reading = readings.pop()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_an_insert_after_a_clear_past_the_end_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.insert(1, Reading())\n\ndef loop():\n    pass\n",
+        message="The index for insert() must be between 0 and 0.",
+    )
+
+
+def test_clear_takes_no_arguments(error):
+    error(
+        POP_SHELL + "def main():\n    readings.clear(0)\n\ndef loop():\n    pass\n",
+        message="clear() takes exactly 0 arguments but 1 was given.",
+    )
+
+
+def test_clear_on_a_value_that_is_not_a_list_is_rejected(error):
+    error(
+        "def main():\n    count = 5\n    count.clear()\n\ndef loop():\n    pass\n",
+        message="'count' is not a list, so it cannot be cleared.",
+    )
+
+
+def test_clear_used_as_a_value_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    size = readings.clear()\n\ndef loop():\n    pass\n",
+        message="clear() has to be used as a statement.",
+        hint="readings.clear()",
+    )
+
+
+def test_clear_in_loop_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    pass\n\ndef loop():\n    readings.clear()\n",
+        message=CLEAR_OUTSIDE,
+        hint="Move the clear() calls into main().",
+    )
+
+
+def test_clear_in_runtime_control_flow_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    for i in range(3):\n        if True:\n            readings.clear()\n\ndef loop():\n    pass\n",
+        message=CLEAR_FLOW,
+        hint="Call clear() once for every time you need to reset the list in main().",
+    )
+
+
+def test_clear_in_a_helper_function_is_rejected(error):
+    error(
+        POP_SHELL + "def reset():\n    readings.clear()\n\ndef main():\n    pass\n\ndef loop():\n    pass\n",
+        message=CLEAR_OUTSIDE,
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(
