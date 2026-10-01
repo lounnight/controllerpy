@@ -976,6 +976,133 @@ def test_class_and_function_with_the_same_name_is_rejected(error):
     )
 
 
+# ------------------------------------------------------------------- structs
+STRUCT_SHELL = """
+class Point:
+    x: int
+    y: float
+{extra}
+def main():
+    pass
+
+def loop():
+    pass
+"""
+
+
+def test_a_class_of_fields_is_a_struct(result):
+    compiled = result(STRUCT_SHELL.format(extra=""))
+    point = compiled.context.classes["Point"]
+    assert point.is_struct is True
+    assert list(point.fields) == ["x", "y"]
+    assert point.fields["x"].cpp_type == "int"
+    assert point.fields["y"].cpp_type == "float"
+    assert point.methods == {}
+
+
+def test_a_class_with_methods_is_not_a_struct(result):
+    compiled = result(CLASS_SHELL.format(extra=""))
+    assert compiled.context.classes["Led"].is_struct is False
+
+
+def test_a_struct_field_may_hold_another_struct(result):
+    compiled = result(
+        """
+        class Point:
+            x: int
+
+        class Waypoint:
+            point: Point
+            name: str
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.classes["Waypoint"].fields["point"].cpp_type == "Point"
+    assert compiled.context.classes["Waypoint"].fields["name"].cpp_type == "String"
+
+
+def test_a_struct_is_a_known_object_type(result):
+    compiled = result(
+        """
+        class Point:
+            x: int
+
+        def main():
+            point = Point()
+            point.x = 3
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.is_object_type("Point")
+    assert compiled.context.setup_info.locals["point"].cpp_type == "Point"
+
+
+def test_a_struct_field_with_a_value_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    x: int = 5\n"),
+        message="A struct field cannot have a value.",
+    )
+
+
+def test_a_struct_field_annotated_as_none_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    x: None\n"),
+        message="'None' is not a valid field type.",
+    )
+
+
+def test_a_duplicate_struct_field_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    x: int\n    x: float\n"),
+        message="Struct field 'x' is declared more than once.",
+    )
+
+
+def test_a_struct_field_that_is_not_a_simple_name_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    self.x: int\n"),
+        message="Only a simple name can be declared as a struct field.",
+    )
+
+
+def test_a_struct_field_named_after_an_arduino_name_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    HIGH: int\n"),
+        message="'HIGH' is used by the Arduino core and cannot be a variable name.",
+    )
+
+
+def test_a_struct_cannot_be_created_with_arguments(error):
+    error(
+        """
+        class Point:
+            x: int
+
+        def main():
+            point = Point(1, 2)
+
+        def loop():
+            pass
+        """,
+        message="Struct 'Point' cannot be created with arguments.",
+        hint="point = Point()",
+    )
+
+
+def test_a_class_attribute_next_to_a_method_is_still_rejected(error):
+    error(
+        CLASS_SHELL.format(extra="").replace("    def on(self):", "    shared: int\n\n    def on(self):"),
+        message="Class attributes are not supported.",
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(

@@ -710,6 +710,13 @@ class BodyAnalyzer(ast.NodeVisitor):
             self.ctx.error(node, "range() can only be used in a for loop.")
         cls = self.ctx.classes.get(name)
         if cls is not None:
+            if cls.is_struct and node.args:
+                self.ctx.error(
+                    node,
+                    f"Struct '{name}' cannot be created with arguments.",
+                    hint="Create the struct and assign its fields:",
+                    hint_lines=[f"point = {name}()", "point.x = 1"],
+                )
             params = cls.constructor.params if cls.constructor is not None else []
             self._check_arity(node, name, len(node.args), len(params), len(params))
             for param, arg_type in zip(params, arg_types):

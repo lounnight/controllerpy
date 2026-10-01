@@ -94,6 +94,7 @@ class ClassInfo:
     fields: Dict[str, VarInfo] = field(default_factory=dict)
     methods: Dict[str, MethodInfo] = field(default_factory=dict)
     constructor: Optional[MethodInfo] = None
+    is_struct: bool = False
     depends_on: Set[str] = field(default_factory=set)
     lineno: Optional[int] = None
     col_offset: Optional[int] = None
