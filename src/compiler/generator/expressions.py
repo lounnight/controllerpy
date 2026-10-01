@@ -213,12 +213,16 @@ class ExpressionEmitter:
     def _str_call(self, node: ast.Call) -> str:
         arg = node.args[0]
         value = self.value(arg)
-        arg_type = self.type_of(arg)
-        if arg_type == "bool":
-            return f'String({value} ? "True" : "False")'
-        if arg_type in ("String", "const char*"):
+        if self.type_of(arg) in ("String", "const char*"):
             return value
-        return f"String({value})"
+        return self._text_of(arg, value, self._expr(arg)[1])
+
+    def _text_of(self, node: ast.AST, text: str, precedence: int) -> str:
+        if self.type_of(node) == "bool":
+            if precedence <= PRE_TERNARY:
+                text = f"({text})"
+            return f'String({text} ? "True" : "False")'
+        return f"String({text})"
 
     def _binop(self, node: ast.BinOp) -> Tuple[str, int]:
         op = node.op
@@ -233,6 +237,10 @@ class ExpressionEmitter:
                 return (f"floor({left} / {right})", PRE_ATOM)
             return (f"fmod({left}, {right})", PRE_ATOM)
         token, precedence = BINOP_TOKENS[type(op)]
+        if isinstance(op, ast.Add) and self.type_of(node) == "String":
+            left = self._concat_operand(node.left, precedence, allow_equal=True)
+            right = self._concat_operand(node.right, precedence, allow_equal=False)
+            return (f"{left} + {right}", precedence)
         left_text, left_precedence = self._expr(node.left)
         right_text, right_precedence = self._expr(node.right)
         if self._needs_parentheses(node.left, left_precedence, precedence, allow_equal=True):
@@ -241,6 +249,14 @@ class ExpressionEmitter:
             right_text = f"({right_text})"
 
         return (f"{left_text} {token} {right_text}", precedence)
+
+    def _concat_operand(self, node: ast.AST, precedence: int, *, allow_equal: bool) -> str:
+        text, child = self._expr(node)
+        if self._needs_parentheses(node, child, precedence, allow_equal=allow_equal):
+            text = f"({text})"
+        if self.type_of(node) == "String":
+            return text
+        return self._text_of(node, text, child)
 
     def _boolop(self, node: ast.BoolOp) -> Tuple[str, int]:
         if isinstance(node.op, ast.And):

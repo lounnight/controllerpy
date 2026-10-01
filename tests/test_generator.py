@@ -781,6 +781,167 @@ def test_str_is_available_inside_runtime_control_flow(program):
     assert "        Serial.println(String(count));\n" in cpp
 
 
+def test_a_literal_and_a_string_are_concatenated(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = 'hi ' + label\n\ndef loop():\n    pass\n")
+    assert '    String text = String("hi ") + label;\n' in cpp
+
+
+def test_a_string_and_a_literal_are_concatenated(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = label + '!'\n\ndef loop():\n    pass\n")
+    assert '    String text = label + String("!");\n' in cpp
+
+
+def test_two_literals_are_concatenated_into_a_string(program):
+    cpp = program("def main():\n    text = 'hello ' + 'world'\n\ndef loop():\n    pass\n")
+    assert '    String text = String("hello ") + String("world");\n' in cpp
+    assert 'const char* text = "hello " + "world"' not in cpp
+
+
+def test_a_string_and_a_primitive_are_concatenated(program):
+    cpp = program(
+        """
+        name = 'sample'
+
+        def main():
+            label: str = 'hi'
+            count = label + 7
+            ratio = label + 1.5
+            full = label + name
+
+        def loop():
+            pass
+        """
+    )
+    assert "    String count = label + String(7);\n" in cpp
+    assert "    String ratio = label + String(1.5);\n" in cpp
+    assert "    String full = label + String(name);\n" in cpp
+
+
+def test_a_primitive_and_a_string_are_concatenated(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = 7 + label\n\ndef loop():\n    pass\n")
+    assert "    String text = String(7) + label;\n" in cpp
+
+
+def test_a_bool_in_concatenation_keeps_the_python_spelling(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = label + True\n\ndef loop():\n    pass\n")
+    assert '    String text = label + String(true ? "True" : "False");\n' in cpp
+
+
+def test_a_bool_concatenated_first_keeps_the_python_spelling(program):
+    cpp = program("def main():\n    text = str(True) + '!'\n\ndef loop():\n    pass\n")
+    assert '    String text = String(true ? "True" : "False") + String("!");\n' in cpp
+
+
+def test_concatenation_uses_str_for_values(program):
+    cpp = program("def main():\n    text = 'value: ' + str(42)\n\ndef loop():\n    pass\n")
+    assert '    String text = String("value: ") + String(42);\n' in cpp
+
+
+def test_chained_concatenation_is_generated(program):
+    cpp = program("def main():\n    text = 'a' + str(1) + 'b' + str(2)\n\ndef loop():\n    pass\n")
+    assert '    String text = String("a") + String(1) + String("b") + String(2);\n' in cpp
+
+
+def test_chained_concatenation_keeps_left_to_right_grouping(program):
+    cpp = program("def main():\n    text = 'a' + ('b' + str(2))\n\ndef loop():\n    pass\n")
+    assert '    String text = String("a") + (String("b") + String(2));\n' in cpp
+
+
+def test_concatenation_can_be_printed(program):
+    cpp = program(
+        """
+        def main():
+            serial_print('value: ' + str(42))
+            serial_println('value: ' + str(42))
+
+        def loop():
+            pass
+        """
+    )
+    assert '    Serial.print(String("value: ") + String(42));\n' in cpp
+    assert '    Serial.println(String("value: ") + String(42));\n' in cpp
+
+
+def test_chained_concatenation_can_be_printed(program):
+    cpp = program("def main():\n    serial_println('a=' + str(10) + ',b=' + str(20))\n\ndef loop():\n    pass\n")
+    assert '    Serial.println(String("a=") + String(10) + String(",b=") + String(20));\n' in cpp
+
+
+def test_concatenation_can_be_returned(program):
+    cpp = program(
+        """
+        def label_for(level: int) -> str:
+            return 'level=' + str(level)
+
+        def main():
+            text = label_for(3)
+
+        def loop():
+            pass
+        """
+    )
+    assert '    return String("level=") + String(level);\n' in cpp
+
+
+def test_concatenation_fills_a_struct_string_field(program):
+    cpp = program(
+        """
+        class Reading:
+            label: str
+            level: int
+
+        def main():
+            reading = Reading()
+            reading.label = 'L' + str(reading.level)
+
+        def loop():
+            pass
+        """
+    )
+    assert '    reading.label = String("L") + String(reading.level);\n' in cpp
+
+
+def test_concatenation_in_a_global_initializer_is_generated(program):
+    cpp = program("banner = 'ready: ' + str(3)\n" + SHELL)
+    assert 'const String banner = String("ready: ") + String(3);\n' in cpp
+
+
+def test_numeric_addition_is_not_converted_to_a_string(program):
+    cpp = program(
+        """
+        def main():
+            total = 10 + 20
+            ratio = 1.5 + 2.5
+            step = total + 1
+            flag = True + False
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int total = 10 + 20;\n" in cpp
+    assert "    float ratio = 1.5 + 2.5;\n" in cpp
+    assert "    int step = total + 1;\n" in cpp
+    assert "    int flag = true + false;\n" in cpp
+    assert "String(" not in cpp
+
+
+def test_concatenation_inside_runtime_control_flow_is_generated(program):
+    cpp = program(
+        """
+        def main():
+            count = 0
+            while count < 3:
+                serial_println('n=' + str(count))
+                count += 1
+
+        def loop():
+            pass
+        """
+    )
+    assert '        Serial.println(String("n=") + String(count));\n' in cpp
+
+
 def test_pass_produces_an_empty_block(program):
     cpp = program("def main():\n    pass\n\ndef loop():\n    pass\n")
     assert "void setup() {\n}" in cpp

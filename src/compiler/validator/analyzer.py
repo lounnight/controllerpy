@@ -1089,14 +1089,17 @@ class BodyAnalyzer(ast.NodeVisitor):
             return "int"
         if isinstance(op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)):
             for operand in (left, right):
+                if self.ctx.is_object_type(operand):
+                    self.ctx.error(node, f"Operators cannot be used with objects of type '{operand}'.")
+            if isinstance(op, ast.Add) and any(operand in ("const char*", "String") for operand in (left, right)):
+                return "String"
+            for operand in (left, right):
                 if operand in ("const char*", "String"):
                     self.ctx.error(
                         node,
-                        "String arithmetic is not supported.",
-                        hint="Print values separately with serial_print()/serial_println().",
+                        "Only '+' can be used to build a string.",
+                        hint="Use str() to convert a value: 'value: ' + str(value)",
                     )
-                if self.ctx.is_object_type(operand):
-                    self.ctx.error(node, f"Operators cannot be used with objects of type '{operand}'.")
             if "float" in (left, right):
                 return "float"
             if UNKNOWN_TYPE in (left, right):

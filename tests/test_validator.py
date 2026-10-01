@@ -2370,10 +2370,161 @@ def test_pulse_in_result_still_rejects_a_genuinely_incompatible_scope_assignment
 
 def test_string_arithmetic_is_rejected(error):
     error(
-        "def main():\n    text = 'a' + 'b'\n\ndef loop():\n    pass\n",
-        message="String arithmetic is not supported.",
-        hint="serial_println()",
+        "def main():\n    text = 'a' - 'b'\n\ndef loop():\n    pass\n",
+        message="Only '+' can be used to build a string.",
+        hint="str()",
     )
+
+
+def test_string_multiplication_is_rejected(error):
+    error(
+        "def main():\n    text = 'a' * 3\n\ndef loop():\n    pass\n",
+        message="Only '+' can be used to build a string.",
+        hint="str()",
+    )
+
+
+def test_adding_a_struct_to_a_string_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            label: str = 'hi'
+            reading = Reading()
+            text = label + reading
+
+        def loop():
+            pass
+        """,
+        message="Operators cannot be used with objects of type 'Reading'.",
+    )
+
+
+def test_adding_two_literals_is_string_concatenation(result):
+    compiled = result("def main():\n    text = 'a' + 'b'\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_string_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = label + '!'\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_literal_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = 'hi ' + label\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_string_and_an_int_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = label + 7\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_string_and_a_float_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = label + 1.5\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_string_and_a_bool_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = label + True\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_an_int_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = 7 + label\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_float_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = 1.5 + label\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_bool_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = True + label\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_chained_string_concatenation_is_accepted(result):
+    compiled = result("def main():\n    text = 'a' + str(1) + 'b' + str(2)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_concatenation_can_be_printed(result):
+    compiled = result(
+        "def main():\n    serial_print('value: ' + str(42))\n    serial_println('value: ' + str(42))\n\ndef loop():\n    pass\n"
+    )
+    assert 'Serial.print(String("value: ") + String(42));' in compiled.cpp
+    assert 'Serial.println(String("value: ") + String(42));' in compiled.cpp
+
+
+def test_concatenation_can_be_returned(result):
+    compiled = result(
+        """
+        def label_for(level: int) -> str:
+            return 'level=' + str(level)
+
+        def main():
+            text = label_for(3)
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.functions["label_for"].return_type == "String"
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_concatenation_fills_a_struct_string_field(result):
+    compiled = result(
+        """
+        class Reading:
+            label: str
+            level: int
+
+        def main():
+            reading = Reading()
+            reading.label = 'L' + str(reading.level)
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.classes["Reading"].fields["label"].cpp_type == "String"
+
+
+def test_concatenation_in_a_global_initializer_is_accepted(result):
+    compiled = result("banner = 'ready: ' + str(3)\n" + SHELL)
+    assert compiled.context.globals["banner"].cpp_type == "String"
+
+
+def test_numeric_addition_stays_numeric(result):
+    compiled = result(
+        "def main():\n    total = 10 + 20\n    ratio = 1.5 + 2.5\n    step = total + 1\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["total"].cpp_type == "int"
+    assert compiled.context.setup_info.locals["ratio"].cpp_type == "float"
+    assert compiled.context.setup_info.locals["step"].cpp_type == "int"
+
+
+def test_bool_concatenation_still_uses_the_python_spelling(result):
+    compiled = result("def main():\n    text = str(True) + '!'\n\ndef loop():\n    pass\n")
+    assert 'String(true ? "True" : "False") + String("!")' in compiled.cpp
+
+
+def test_concatenation_inside_runtime_control_flow_is_accepted(result):
+    compiled = result(
+        "def main():\n    count = 0\n    while count < 3:\n        serial_println('n=' + str(count))\n        count += 1\n\ndef loop():\n    pass\n"
+    )
+    assert 'Serial.println(String("n=") + String(count));' in compiled.cpp
+
+
+def test_concatenation_cannot_be_used_as_a_condition_only_by_mistake(result):
+    compiled = result("def main():\n    text = 'a' + str(1)\n    other = 'b' + str(2)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+    assert compiled.context.setup_info.locals["other"].cpp_type == "String"
 
 
 def test_bitwise_operators_need_integers(error):
