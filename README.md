@@ -650,7 +650,7 @@ chain is required.
 
 - [x] Improve CLI
 - [x] More Arduino libraries in the registry (and a `Servo`-style API map).
-- [ ] Structs/lists of objects, `str` helpers and a small `String` builder.
+- [x] Structs/lists of objects, `str` helpers and a small `String` builder.
 - [ ] Add small functions
 - [ ] Build a small text editor in the CLI
 - [ ] More boards (Nano, Mega, ESP32) and a `--board` matrix in the test suite.
