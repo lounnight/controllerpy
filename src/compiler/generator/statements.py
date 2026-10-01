@@ -71,6 +71,15 @@ class StatementEmitter:
         self.w.line("}")
         self.w.blank()
 
+    def struct_definition(self, struct: ClassInfo) -> None:
+        self.w.line(f"struct {self.decl.name(struct.name)} {{")
+        self.w.indent()
+        for field in struct.fields.values():
+            self.w.line(f"{self.decl.declaration(field)};")
+        self.w.dedent()
+        self.w.line("};")
+        self.w.blank()
+
     def class_definition(self, cls: ClassInfo) -> None:
         self.w.line(f"class {self.decl.name(cls.name)} {{")
         self.w.line("public:")

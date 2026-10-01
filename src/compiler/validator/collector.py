@@ -319,12 +319,14 @@ class Validator:
         if annotation == VOID_TYPE:
             self.ctx.error(node.annotation, "'None' is not a valid field type.")
         self._check_reserved_variable(target, field_name)
-        info.fields[field_name] = VarInfo(
+        field = VarInfo(
             name=field_name,
             cpp_type=annotation,
             lineno=target.lineno,
             col_offset=target.col_offset,
         )
+        field.record_type(annotation)
+        info.fields[field_name] = field
 
     def _collect_global_targets(self, target: ast.AST) -> List[ast.Name]:
         if isinstance(target, (ast.Tuple, ast.List)):

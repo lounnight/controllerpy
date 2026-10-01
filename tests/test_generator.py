@@ -1375,6 +1375,158 @@ def test_prototypes_are_emitted_before_use(program):
     assert cpp.index("void helper();") < cpp.index("void setup()")
 
 
+# ------------------------------------------------------------------- structs
+def test_a_class_of_fields_becomes_a_cpp_struct(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+            y: float
+
+        def main():
+            point = Point()
+            point.x = 3
+            point.y = 1.5
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.count("struct Point {") == 1
+    assert "public:" not in cpp
+    assert "    int x;\n    float y;\n};" in cpp
+    assert "    Point point;\n" in cpp
+    assert "    point.x = 3;\n" in cpp
+    assert "    point.y = 1.5;\n" in cpp
+
+
+def test_a_struct_field_keeps_its_declared_type(program):
+    cpp = program(
+        """
+        class Reading:
+            label: str
+
+        def main():
+            reading = Reading()
+            reading.label = "voltage"
+
+        def loop():
+            pass
+        """
+    )
+    assert "    String label;\n};" in cpp
+    assert "    reading.label = \"voltage\";\n" in cpp
+
+
+def test_a_struct_object_is_declared_after_its_struct(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+
+        origin = Point()
+
+        def main():
+            origin.x = 1
+
+        def loop():
+            pass
+        """
+    )
+    assert "Point origin;" in cpp
+    assert cpp.index("struct Point {") < cpp.index("Point origin;")
+
+
+def test_a_struct_may_be_a_parameter_and_a_return_type(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+
+        def shifted(point: Point) -> Point:
+            other = Point()
+            other.x = point.x + 1
+            return other
+
+        def main():
+            start = Point()
+            start.x = 1
+            shifted(start)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Point shifted(Point point);" in cpp
+    assert "Point shifted(Point point) {" in cpp
+    assert "    Point other;" in cpp
+    assert "    return other;" in cpp
+
+
+def test_a_struct_may_hold_another_struct(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+
+        class Waypoint:
+            point: Point
+
+        def main():
+            waypoint = Waypoint()
+            waypoint.point = Point()
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Point point;\n};" in cpp
+    assert "    Waypoint waypoint;\n" in cpp
+    assert "    waypoint.point = Point();\n" in cpp
+    assert cpp.index("struct Point {") < cpp.index("struct Waypoint {")
+
+
+def test_a_class_may_hold_a_struct(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+
+        class Marker:
+            def __init__(self, origin: Point):
+                self.origin = origin
+
+        def main():
+            marker = Marker(Point())
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Point origin;\n" in cpp
+    assert "    Marker(Point origin) {" in cpp
+    assert "    Marker marker(Point());" in cpp
+    assert cpp.index("struct Point {") < cpp.index("class Marker {")
+
+
+def test_a_struct_field_named_after_a_cpp_keyword_is_renamed(program):
+    cpp = program(
+        """
+        class Flag:
+            explicit: bool
+
+        def main():
+            flag = Flag()
+            flag.explicit = True
+
+        def loop():
+            pass
+        """
+    )
+    assert "    bool explicit_;\n};" in cpp
+    assert "    flag.explicit_ = true;\n" in cpp
+
+
 # ---------------------------------------------------------------- formatting
 def test_generated_code_is_consistently_formatted(program, result):
     cpp = program(

@@ -54,6 +54,9 @@ def _class_dependencies(context: CompileContext, cls: ClassInfo) -> Set[str]:
     """Names of other classes that appear anywhere inside *cls*."""
 
     dependencies: Set[str] = set()
+    for field in cls.fields.values():
+        if field.cpp_type in context.classes and field.cpp_type != cls.name:
+            dependencies.add(field.cpp_type)
     for method in cls.all_methods():
         if method.node is None:
             continue

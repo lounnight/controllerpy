@@ -90,4 +90,7 @@ class CppGenerator:
 
     def _emit_classes(self) -> None:
         for cls in order_classes(self.ctx):
-            self.statements.class_definition(cls)
+            if cls.is_struct:
+                self.statements.struct_definition(cls)
+            else:
+                self.statements.class_definition(cls)
