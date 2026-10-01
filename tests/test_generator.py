@@ -1926,6 +1926,149 @@ def test_a_local_popped_list_reflects_the_count_in_len(program):
     assert "    int after = readings_count;\n" in cpp
 
 
+def test_an_inserted_struct_shifts_the_existing_values(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.insert(1, Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[3] = {Reading(), Reading()};\n" in cpp
+    assert "int readings_count = 2;\n" in cpp
+    assert (
+        "    for (int controllerpy_shift = readings_count; controllerpy_shift > 1; controllerpy_shift--) {\n"
+    ) in cpp
+    assert "        readings[controllerpy_shift] = readings[controllerpy_shift - 1];\n" in cpp
+    assert "    readings[1] = Reading();\n" in cpp
+    assert "    readings_count++;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+    assert cpp.index("struct Reading {") < cpp.index("Reading readings[3]")
+
+
+def test_an_insert_at_the_end_of_the_list_grows_the_capacity(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.insert(2, Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[3] = {Reading(), Reading()};\n" in cpp
+    assert "controllerpy_shift > 2" in cpp
+    assert "    readings[2] = Reading();\n" in cpp
+
+
+def test_multiple_inserts_grow_the_capacity_and_the_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.insert(0, Reading())
+            readings.insert(2, Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[4] = {Reading(), Reading()};\n" in cpp
+    assert cpp.count("controllerpy_shift = readings_count") == 2
+    assert cpp.count("readings_count++;") == 2
+    assert "    readings[0] = Reading();\n" in cpp
+    assert "    readings[2] = Reading();\n" in cpp
+
+
+def test_an_insert_after_an_append_shares_the_runtime_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.insert(1, Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2];\n" in cpp
+    assert "int readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert "controllerpy_shift = readings_count; controllerpy_shift > 1" in cpp
+    assert "    readings[1] = Reading();\n" in cpp
+
+
+def test_an_insert_into_a_local_list_uses_the_local_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+            readings.insert(0, Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Reading readings[3] = {Reading(), Reading()};\n" in cpp
+    assert "    int readings_count = 2;\n" in cpp
+    assert "controllerpy_shift = readings_count" in cpp
+    assert "    readings_count++;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_struct_with_struct_fields_can_be_inserted(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample()]
+
+        def main():
+            samples.insert(0, Sample())
+            size = len(samples)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Sample samples[2] = {Sample()};\n" in cpp
+    assert "int samples_count = 1;\n" in cpp
+    assert "        samples[controllerpy_shift] = samples[controllerpy_shift - 1];\n" in cpp
+    assert "    samples[0] = Sample();\n" in cpp
+    assert "    int size = samples_count;\n" in cpp
+    assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
+
+
 # ---------------------------------------------------------------- formatting
 def test_generated_code_is_consistently_formatted(program, result):
     cpp = program(

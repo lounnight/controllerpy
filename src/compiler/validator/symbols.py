@@ -26,6 +26,7 @@ class VarInfo:
     is_array: bool = False
     array_len: Optional[int] = None
     append_count: int = 0
+    insert_count: int = 0
     pop_count: int = 0
     is_object: bool = False
     is_external: bool = False
@@ -58,11 +59,11 @@ class VarInfo:
 
     @property
     def has_count(self) -> bool:
-        return bool(self.append_count or self.pop_count)
+        return bool(self.append_count or self.insert_count or self.pop_count)
 
     @property
     def guaranteed_count(self) -> int:
-        return (self.array_len or 0) + self.append_count - self.pop_count
+        return (self.array_len or 0) + self.append_count + self.insert_count - self.pop_count
 
 
 @dataclass

@@ -390,9 +390,13 @@ class BodyAnalyzer(ast.NodeVisitor):
         if is_docstring(node):
             return
         call = node.value
-        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "append":
-            self._append_call_type(call, call.func.value, [self._type(arg) for arg in call.args])
-            return
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute):
+            if call.func.attr == "append":
+                self._append_call_type(call, call.func.value, [self._type(arg) for arg in call.args])
+                return
+            if call.func.attr == "insert":
+                self._insert_call_type(call, call.func.value, [self._type(arg) for arg in call.args])
+                return
         self._type(node.value)
 
     def visit_If(self, node: ast.If) -> None:
@@ -803,6 +807,13 @@ class BodyAnalyzer(ast.NodeVisitor):
             return UNKNOWN_TYPE
         if attr == "pop":
             return self._pop_call_type(node, base, arg_types)
+        if attr == "insert":
+            self.ctx.error(
+                node,
+                "insert() has to be used as a statement.",
+                hint="readings.insert(0, Reading())",
+            )
+            return VOID_TYPE
         base_type = self._type(base)
         if base_type in ARDUINO_OBJECTS:
             return UNKNOWN_TYPE
@@ -915,6 +926,65 @@ class BodyAnalyzer(ast.NodeVisitor):
         if element_type in (UNKNOWN_TYPE, CONFLICT_TYPE):
             return UNKNOWN_TYPE
         return element_type
+
+    def _insert_call_type(self, node: ast.Call, base: ast.AST, arg_types: Sequence[str]) -> str:
+        if self.in_runtime_flow:
+            self.ctx.error(
+                node,
+                "insert() cannot be used in runtime control flow because the list length changes at compile time.",
+                hint="Call insert() once for every value in main().",
+            )
+            return VOID_TYPE
+        if self.entry_name != "main":
+            self.ctx.error(
+                node,
+                "insert() can only be used in main() because the list length changes at compile time.",
+                hint="Move the insert() calls into main().",
+            )
+            return VOID_TYPE
+        if not isinstance(base, ast.Name):
+            self.ctx.error(
+                node,
+                "insert() needs a list variable.",
+                hint="values = [1, 2]  then  values.insert(0, 3)",
+            )
+            return VOID_TYPE
+        var = self.scope.lookup(base.id)
+        if var is None:
+            self.ctx.error(base, f"'{base.id}' is not defined.")
+            return VOID_TYPE
+        if not var.is_array:
+            self.ctx.error(node, f"'{base.id}' is not a list, so nothing can be inserted into it.")
+            return VOID_TYPE
+        self._check_arity(node, "insert", len(node.args), 2, 2)
+        if arg_types[0] not in ("int", "bool", "char", UNKNOWN_TYPE):
+            self.ctx.error(node.args[0], "The index passed to insert() must be an integer.")
+            return VOID_TYPE
+        index = constant_int(node.args[0])
+        if index is None:
+            self.ctx.error(
+                node.args[0],
+                "The index passed to insert() must be a constant integer.",
+                hint="The list length is known at compile time, so insert() needs a fixed index.",
+            )
+            return VOID_TYPE
+        count = var.guaranteed_count
+        if not 0 <= index <= count:
+            self.ctx.error(
+                node.args[0],
+                f"The index for insert() must be between 0 and {count}.",
+                hint="Values are shifted right, so the index cannot be past the end of the list.",
+            )
+            return VOID_TYPE
+        arg_type = arg_types[1]
+        element_type = self._variable_type(var)
+        if element_type not in (UNKNOWN_TYPE, CONFLICT_TYPE) and arg_type not in (UNKNOWN_TYPE, CONFLICT_TYPE):
+            if merge_types(element_type, arg_type) == CONFLICT_TYPE:
+                self.ctx.error(node.args[1], f"List '{base.id}' holds {element_type} values, not {arg_type}.")
+        var.record_type(arg_type)
+        var.insert_count += 1
+        var.write_count += 1
+        return VOID_TYPE
 
     def _len_type(self, node: ast.Call) -> str:
         self._check_arity(node, "len", len(node.args), 1, 1)

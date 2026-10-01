@@ -442,7 +442,7 @@ class Validator:
         )
 
     def _finalize_var(self, var: VarInfo) -> None:
-        if var.is_array and var.array_len == 0 and not var.append_count:
+        if var.is_array and var.array_len == 0 and not var.append_count and not var.insert_count:
             self._var_error(
                 var,
                 "Empty lists are not supported.",

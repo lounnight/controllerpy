@@ -170,10 +170,23 @@ class StatementEmitter:
         if (
             isinstance(call, ast.Call)
             and isinstance(call.func, ast.Attribute)
-            and call.func.attr == "pop"
             and isinstance(call.func.value, ast.Name)
+            and call.func.attr in ("insert", "pop")
         ):
-            self.w.line(f"--{self.ctx.count_name(call.func.value.id)};")
+            base = self.exprs.expr(call.func.value)
+            count = self.ctx.count_name(call.func.value.id)
+            if call.func.attr == "pop":
+                self.w.line(f"--{count};")
+                return
+            index = constant_int(call.args[0]) or 0
+            shift = "controllerpy_shift"
+            self.w.line(f"for (int {shift} = {count}; {shift} > {index}; {shift}--) {{")
+            self.w.indent()
+            self.w.line(f"{base}[{shift}] = {base}[{shift} - 1];")
+            self.w.dedent()
+            self.w.line("}")
+            self.w.line(f"{base}[{index}] = {self.exprs.value(call.args[1])};")
+            self.w.line(f"{count}++;")
             return
         self.w.line(f"{self.exprs.expr(node.value)};")
 

@@ -1826,6 +1826,216 @@ def test_pop_in_runtime_control_flow_is_rejected(error):
     )
 
 
+INSERT_FLOW = "insert() cannot be used in runtime control flow because the list length changes at compile time."
+INSERT_OUTSIDE = "insert() can only be used in main() because the list length changes at compile time."
+INSERT_RANGE = "The index for insert() must be between 0 and 2."
+
+
+def test_a_value_can_be_inserted_into_a_struct_list(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.insert(0, Reading())\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.globals["readings"].cpp_type == "Reading"
+
+
+def test_a_struct_variable_can_be_inserted(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    reading = Reading()\n    readings.insert(1, reading)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_an_incompatible_primitive_cannot_be_inserted(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(0, 123)\n\ndef loop():\n    pass\n",
+        message="List 'readings' holds Reading values, not int.",
+    )
+
+
+def test_another_struct_cannot_be_inserted(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(0, Sample())\n\ndef loop():\n    pass\n",
+        message="List 'readings' holds Reading values, not Sample.",
+    )
+
+
+def test_a_non_integer_insert_index_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert('first', Reading())\n\ndef loop():\n    pass\n",
+        message="The index passed to insert() must be an integer.",
+    )
+
+
+def test_a_negative_insert_index_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(-1, Reading())\n\ndef loop():\n    pass\n",
+        message=INSERT_RANGE,
+        hint="Values are shifted right, so the index cannot be past the end of the list.",
+    )
+
+
+def test_an_insert_index_past_the_end_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(3, Reading())\n\ndef loop():\n    pass\n",
+        message=INSERT_RANGE,
+    )
+
+
+def test_an_insert_index_that_is_not_constant_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    where = 1\n    readings.insert(where, Reading())\n\ndef loop():\n    pass\n",
+        message="The index passed to insert() must be a constant integer.",
+        hint="The list length is known at compile time, so insert() needs a fixed index.",
+    )
+
+
+def test_insert_into_an_empty_list_is_accepted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.insert(0, Reading())
+            reading = readings.pop()
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_insert_after_an_append_is_accepted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.insert(1, Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.globals["readings"].append_count == 1
+
+
+def test_insert_after_a_pop_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.pop()\n    readings.insert(1, Reading())\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].pop_count == 1
+    assert compiled.context.globals["readings"].insert_count == 1
+
+
+def test_more_pops_than_values_after_inserts_are_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    readings.insert(0, Reading())\n    readings.pop()\n    readings.pop()\n    readings.pop()\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+    )
+
+
+def test_every_insert_is_counted(result):
+    compiled = result(
+        POP_SHELL
+        + "def main():\n    readings.insert(0, Reading())\n    readings.insert(2, Reading())\n    readings.insert(4, Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].insert_count == 3
+
+
+def test_a_local_list_can_be_inserted_into(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+            readings.insert(0, Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.setup_info.locals["readings"]
+    assert readings.insert_count == 1
+    assert compiled.context.setup_info.locals["size"].cpp_type == "int"
+
+
+def test_a_struct_with_a_struct_field_can_be_inserted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample()]
+
+        def main():
+            samples.insert(0, Sample())
+            sample = samples.pop()
+            first = sample.first
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["samples"].insert_count == 1
+    assert compiled.context.setup_info.locals["sample"].cpp_type == "Sample"
+    assert compiled.context.setup_info.locals["first"].cpp_type == "Reading"
+
+
+def test_insert_needs_an_index_and_a_value(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(0)\n\ndef loop():\n    pass\n",
+        message="insert() takes exactly 2 arguments but 1 was given.",
+    )
+
+
+def test_insert_into_a_value_that_is_not_a_list_is_rejected(error):
+    error(
+        "def main():\n    value = 1\n    value.insert(0, 2)\n\ndef loop():\n    pass\n",
+        message="'value' is not a list, so nothing can be inserted into it.",
+    )
+
+
+def test_the_result_of_insert_cannot_be_used(error):
+    error(
+        POP_SHELL + "def main():\n    size = readings.insert(0, Reading())\n\ndef loop():\n    pass\n",
+        message="insert() has to be used as a statement.",
+        hint="readings.insert(0, Reading())",
+    )
+
+
+def test_insert_in_loop_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    pass\n\ndef loop():\n    readings.insert(0, Reading())\n",
+        message=INSERT_OUTSIDE,
+        hint="Move the insert() calls into main().",
+    )
+
+
+def test_insert_in_runtime_control_flow_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    for i in range(3):\n        readings.insert(0, Reading())\n\ndef loop():\n    pass\n",
+        message=INSERT_FLOW,
+        hint="Call insert() once for every value in main().",
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(

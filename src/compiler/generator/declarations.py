@@ -36,7 +36,7 @@ class DeclarationEmitter:
         cpp_type = var.cpp_type if var.cpp_type != UNKNOWN_TYPE else "int"
         declarator = self.name(var.name)
         if var.is_array:
-            size = "" if var.array_len is None else str(var.array_len + var.append_count)
+            size = "" if var.array_len is None else str(var.array_len + var.append_count + var.insert_count)
             declarator = f"{declarator}[{size}]"
         use_const = var.is_const if const is None else const
         if use_const and cpp_type != "const char*":
