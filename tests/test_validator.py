@@ -976,6 +976,1219 @@ def test_class_and_function_with_the_same_name_is_rejected(error):
     )
 
 
+# ------------------------------------------------------------------- structs
+STRUCT_SHELL = """
+class Point:
+    x: int
+    y: float
+{extra}
+def main():
+    pass
+
+def loop():
+    pass
+"""
+
+
+def test_a_class_of_fields_is_a_struct(result):
+    compiled = result(STRUCT_SHELL.format(extra=""))
+    point = compiled.context.classes["Point"]
+    assert point.is_struct is True
+    assert list(point.fields) == ["x", "y"]
+    assert point.fields["x"].cpp_type == "int"
+    assert point.fields["y"].cpp_type == "float"
+    assert point.methods == {}
+
+
+def test_a_class_with_methods_is_not_a_struct(result):
+    compiled = result(CLASS_SHELL.format(extra=""))
+    assert compiled.context.classes["Led"].is_struct is False
+
+
+def test_a_struct_field_may_hold_another_struct(result):
+    compiled = result(
+        """
+        class Point:
+            x: int
+
+        class Waypoint:
+            point: Point
+            name: str
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.classes["Waypoint"].fields["point"].cpp_type == "Point"
+    assert compiled.context.classes["Waypoint"].fields["name"].cpp_type == "String"
+
+
+def test_a_struct_is_a_known_object_type(result):
+    compiled = result(
+        """
+        class Point:
+            x: int
+
+        def main():
+            point = Point()
+            point.x = 3
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.is_object_type("Point")
+    assert compiled.context.setup_info.locals["point"].cpp_type == "Point"
+
+
+def test_a_struct_field_with_a_value_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    x: int = 5\n"),
+        message="A struct field cannot have a value.",
+    )
+
+
+def test_a_struct_field_annotated_as_none_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    x: None\n"),
+        message="'None' is not a valid field type.",
+    )
+
+
+def test_a_duplicate_struct_field_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    x: int\n    x: float\n"),
+        message="Struct field 'x' is declared more than once.",
+    )
+
+
+def test_a_struct_field_that_is_not_a_simple_name_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    self.x: int\n"),
+        message="Only a simple name can be declared as a struct field.",
+    )
+
+
+def test_a_struct_field_named_after_an_arduino_name_is_rejected(error):
+    error(
+        STRUCT_SHELL.format(extra="").replace("    x: int\n", "    HIGH: int\n"),
+        message="'HIGH' is used by the Arduino core and cannot be a variable name.",
+    )
+
+
+def test_a_struct_cannot_be_created_with_arguments(error):
+    error(
+        """
+        class Point:
+            x: int
+
+        def main():
+            point = Point(1, 2)
+
+        def loop():
+            pass
+        """,
+        message="Struct 'Point' cannot be created with arguments.",
+        hint="point = Point()",
+    )
+
+
+def test_a_class_attribute_next_to_a_method_is_still_rejected(error):
+    error(
+        CLASS_SHELL.format(extra="").replace("    def on(self):", "    shared: int\n\n    def on(self):"),
+        message="Class attributes are not supported.",
+    )
+
+
+def test_a_list_of_struct_objects_keeps_the_element_type(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.globals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.is_array is True
+    assert readings.array_len == 2
+    assert compiled.context.is_struct_type(readings.cpp_type)
+
+
+def test_a_local_list_of_struct_objects_keeps_the_element_type(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.setup_info.locals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.is_array is True
+    assert readings.array_len == 2
+
+
+def test_a_list_of_structs_with_nested_struct_fields_keeps_the_element_type(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            label: str
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    samples = compiled.context.globals["samples"]
+    assert samples.cpp_type == "Sample"
+    assert samples.array_len == 2
+    assert compiled.context.classes["Sample"].fields["first"].cpp_type == "Reading"
+
+
+def test_a_list_of_class_objects_is_rejected(error):
+    error(
+        """
+        class Led:
+            def __init__(self, pin: int):
+                self.pin = pin
+
+        def main():
+            leds = [Led(13), Led(7)]
+
+        def loop():
+            pass
+        """,
+        message="Lists of class objects are not supported on Arduino.",
+        hint="Use a struct: a class with fields and no methods.",
+    )
+
+
+def test_a_list_of_library_objects_is_rejected(error):
+    error(
+        "from controllerpy import Servo\n\ndef main():\n    servos = [Servo(), Servo()]\n\ndef loop():\n    pass\n",
+        message="Lists of class objects are not supported on Arduino.",
+    )
+
+
+def test_a_list_of_two_different_struct_types_is_rejected(error):
+    error(
+        """
+        class Point:
+            x: int
+
+        class Waypoint:
+            point: Point
+
+        def main():
+            places = [Point(), Waypoint()]
+
+        def loop():
+            pass
+        """,
+        message="All elements of a list must have the same type.",
+    )
+
+
+def test_a_list_mixing_a_struct_and_an_int_is_rejected(error):
+    error(
+        """
+        class Point:
+            x: int
+
+        def main():
+            places = [Point(), 3]
+
+        def loop():
+            pass
+        """,
+        message="All elements of a list must have the same type.",
+    )
+
+
+STRUCT_ARRAY_SHELL = """
+class Reading:
+    value: int
+    bright: bool
+
+readings = [
+    Reading(),
+    Reading(),
+]
+
+def main():
+    {line}
+
+def loop():
+    pass
+"""
+
+
+def test_reading_a_struct_array_element_is_a_struct(result):
+    compiled = result(STRUCT_ARRAY_SHELL.format(line="value = readings[0]"))
+    assert compiled.context.setup_info.locals["value"].cpp_type == "Reading"
+
+
+def test_reading_an_int_field_through_an_index_is_an_int(result):
+    compiled = result(STRUCT_ARRAY_SHELL.format(line="value = readings[0].value"))
+    assert compiled.context.setup_info.locals["value"].cpp_type == "int"
+
+
+def test_reading_a_bool_field_through_an_index_is_a_bool(result):
+    compiled = result(STRUCT_ARRAY_SHELL.format(line="bright = readings[0].bright"))
+    assert compiled.context.setup_info.locals["bright"].cpp_type == "bool"
+
+
+def test_writing_fields_through_an_index_is_accepted(result):
+    compiled = result(
+        STRUCT_ARRAY_SHELL.format(line="readings[0].value = 123\n    readings[0].bright = True")
+    )
+    assert compiled.context.classes["Reading"].fields["value"].cpp_type == "int"
+    assert compiled.context.classes["Reading"].fields["bright"].cpp_type == "bool"
+
+
+def test_a_struct_element_can_be_passed_to_a_function(result):
+    compiled = result(
+        STRUCT_ARRAY_SHELL.format(line="value = brightness(readings[1])")
+        + "\ndef brightness(reading: Reading) -> bool:\n    return reading.bright\n"
+    )
+    assert compiled.context.setup_info.locals["value"].cpp_type == "bool"
+
+
+def test_writing_a_wrong_type_through_an_index_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="readings[0].value = 'text'"),
+        message="'value' is assigned values of incompatible types.",
+    )
+
+
+def test_a_float_index_into_a_struct_array_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="value = readings[1.5].value"),
+        message="Array indices must be integers.",
+    )
+
+
+def test_reading_an_unknown_field_through_an_index_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="value = readings[0].missing"),
+        message="Class 'Reading' has no attribute 'missing'.",
+    )
+
+
+def test_indexing_a_struct_element_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="value = readings[0][0]"),
+        message="Only arrays can be indexed.",
+    )
+
+
+def test_reading_a_nested_struct_field_through_an_index(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            value = samples[0].first.value
+            samples[1].first.value = 7
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.setup_info.locals["value"].cpp_type == "int"
+
+
+def test_a_new_struct_can_be_assigned_to_an_array_element(result):
+    compiled = result(STRUCT_ARRAY_SHELL.format(line="readings[0] = Reading()"))
+    readings = compiled.context.globals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.is_array is True
+
+
+def test_a_struct_variable_can_be_assigned_to_an_array_element(result):
+    compiled = result(
+        STRUCT_ARRAY_SHELL.format(line="reading = Reading()\n    readings[0] = reading")
+    )
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_an_int_assigned_to_a_struct_array_element_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="readings[0] = 123"),
+        message="Array 'readings' holds Reading values, not int.",
+    )
+
+
+def test_another_struct_assigned_to_a_struct_array_element_is_rejected(error):
+    error(
+        STRUCT_ARRAY_SHELL.format(line="readings[0] = Note()")
+        + "\nclass Note:\n    text: str\n",
+        message="Array 'readings' holds Reading values, not Note.",
+    )
+
+
+def test_an_int_assigned_to_a_nested_struct_array_element_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            samples[0] = 7
+
+        def loop():
+            pass
+        """,
+        message="Array 'samples' holds Sample values, not int.",
+    )
+
+
+def test_a_struct_assigned_to_a_scalar_array_element_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            values = [1, 2, 3]
+            values[0] = Reading()
+
+        def loop():
+            pass
+        """,
+        message="Array 'values' holds int values, not Reading.",
+    )
+
+
+APPEND_SHELL = """
+class Reading:
+    value: int
+    bright: bool
+
+class Sample:
+    first: Reading
+
+readings = []
+"""
+
+
+def test_an_appended_struct_fills_an_empty_list(result):
+    compiled = result(APPEND_SHELL + "def main():\n    readings.append(Reading())\n\ndef loop():\n    pass\n")
+    readings = compiled.context.globals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.is_array is True
+    assert readings.array_len == 0
+    assert readings.append_count == 1
+
+
+def test_every_append_is_counted(result):
+    compiled = result(
+        APPEND_SHELL
+        + "def main():\n    readings.append(Reading())\n    readings.append(Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].append_count == 2
+
+
+def test_a_struct_variable_can_be_appended(result):
+    compiled = result(
+        APPEND_SHELL + "def main():\n    reading = Reading()\n    readings.append(reading)\n\ndef loop():\n    pass\n"
+    )
+    readings = compiled.context.globals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_a_local_list_can_be_appended_to(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = []
+            readings.append(Reading())
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.setup_info.locals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.array_len == 0
+    assert readings.append_count == 1
+
+
+def test_a_struct_with_a_struct_field_can_be_appended(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = []
+
+        def main():
+            samples.append(Sample())
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["samples"].cpp_type == "Sample"
+
+
+def test_len_of_an_appended_list_is_an_int(result):
+    compiled = result(
+        APPEND_SHELL
+        + "def main():\n    readings.append(Reading())\n    size = len(readings)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["size"].cpp_type == "int"
+
+
+def test_an_empty_list_without_an_append_is_rejected(error):
+    error(
+        "readings = []\n\ndef main():\n    pass\n\ndef loop():\n    pass\n",
+        message="Empty lists are not supported.",
+        hint="Give the array at least one element.",
+    )
+
+
+def test_a_primitive_appended_to_a_struct_list_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    readings.append(Reading())\n    readings.append(123)\n\ndef loop():\n    pass\n",
+        message="List 'readings' holds Reading values, not int.",
+    )
+
+
+def test_another_struct_appended_to_a_struct_list_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    readings.append(Reading())\n    readings.append(Sample())\n\ndef loop():\n    pass\n",
+        message="List 'readings' holds Reading values, not Sample.",
+    )
+
+
+def test_append_to_a_value_that_is_not_a_list_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            value = 1
+            value.append(Reading())
+
+        def loop():
+            pass
+        """,
+        message="'value' is not a list, so it cannot be appended to.",
+    )
+
+
+def test_append_without_a_value_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    readings.append()\n\ndef loop():\n    pass\n",
+        message="append() takes exactly 1 argument but 0 were given.",
+    )
+
+
+def test_the_result_of_append_cannot_be_used(error):
+    error(
+        APPEND_SHELL + "def main():\n    size = readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message="append() has to be used as a statement.",
+        hint="readings.append(Reading())",
+    )
+
+
+def test_a_list_declared_inside_a_block_cannot_be_appended_to(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            if True:
+                readings = []
+            readings.append(Reading())
+
+        def loop():
+            pass
+        """,
+        message="Array 'readings' must get its values where it is declared.",
+    )
+
+
+APPEND_FLOW = "append() cannot be used in runtime control flow because the list capacity is set at compile time."
+APPEND_OUTSIDE = "append() can only be used in main() because the list capacity is set at compile time."
+
+
+def test_append_in_straight_line_main_is_accepted(result):
+    compiled = result(
+        APPEND_SHELL
+        + "def main():\n    readings.append(Reading())\n    readings.append(Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].append_count == 2
+
+
+def test_append_in_main_around_control_flow_is_accepted(result):
+    compiled = result(
+        APPEND_SHELL
+        + "def main():\n"
+        "    readings.append(Reading())\n"
+        "    on = True\n"
+        "    if on:\n"
+        "        on = False\n"
+        "    readings.append(Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].append_count == 2
+
+
+def test_append_in_loop_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    pass\n\ndef loop():\n    readings.append(Reading())\n",
+        message=APPEND_OUTSIDE,
+        hint="Move the append() calls into main().",
+    )
+
+
+def test_append_in_an_if_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    if True:\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+        hint="Call append() once for every value in main().",
+    )
+
+
+def test_append_in_an_elif_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "def main():\n    if True:\n        pass\n    elif False:\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_an_else_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    if True:\n        pass\n    else:\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_a_while_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "def main():\n    while False:\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_a_for_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    for i in range(3):\n        readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_nested_runtime_flow_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "def main():\n    for i in range(3):\n        while False:\n            readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message=APPEND_FLOW,
+    )
+
+
+def test_append_in_a_function_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "def store():\n    readings.append(Reading())\n\ndef main():\n    store()\n\ndef loop():\n    pass\n",
+        message=APPEND_OUTSIDE,
+    )
+
+
+def test_append_in_a_method_is_rejected(error):
+    error(
+        APPEND_SHELL
+        + "class Sensor:\n    def store(self):\n        readings.append(Reading())\n\ndef main():\n    sensor = Sensor()\n\ndef loop():\n    pass\n",
+        message=APPEND_OUTSIDE,
+    )
+
+
+POP_SHELL = """
+class Reading:
+    value: int
+    bright: bool
+
+class Sample:
+    first: Reading
+
+readings = [Reading(), Reading()]
+"""
+POP_FLOW = "pop() cannot be used in runtime control flow because the list length changes at compile time."
+POP_OUTSIDE = "pop() can only be used in main() because the list length changes at compile time."
+
+
+def test_pop_used_as_a_statement_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.pop()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].pop_count == 1
+
+
+def test_a_popped_value_has_the_element_type(result):
+    compiled = result(POP_SHELL + "def main():\n    reading = readings.pop()\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_a_popped_struct_can_be_read_afterwards(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    reading = readings.pop()\n    value = reading.value\n    bright = reading.bright\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["value"].cpp_type == "int"
+    assert compiled.context.setup_info.locals["bright"].cpp_type == "bool"
+
+
+def test_a_popped_struct_field_is_checked(error):
+    error(
+        POP_SHELL + "def main():\n    reading = readings.pop()\n    value = reading.missing\n\ndef loop():\n    pass\n",
+        message="Class 'Reading' has no attribute 'missing'.",
+    )
+
+
+def test_a_popped_nested_struct_keeps_its_type(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            sample = samples.pop()
+            first = sample.first
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.setup_info.locals["sample"].cpp_type == "Sample"
+    assert compiled.context.setup_info.locals["first"].cpp_type == "Reading"
+
+
+def test_every_pop_is_counted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.pop()\n    readings.pop()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].pop_count == 2
+
+
+def test_pop_after_an_append_is_accepted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            reading = readings.pop()
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+    assert compiled.context.globals["readings"].pop_count == 1
+
+
+def test_a_local_list_can_be_popped_from(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+            size = len(readings)
+            reading = readings.pop()
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.setup_info.locals["readings"]
+    assert readings.pop_count == 1
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+    assert compiled.context.setup_info.locals["size"].cpp_type == "int"
+
+
+def test_pop_from_an_empty_list_is_rejected(error):
+    error(
+        "readings = []\n\ndef main():\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+        hint="Append a value before popping one.",
+    )
+
+
+def test_pop_before_an_append_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.pop()
+            readings.append(Reading())
+
+        def loop():
+            pass
+        """,
+        message="pop() cannot remove a value because 'readings' may be empty.",
+    )
+
+
+def test_more_pops_than_values_are_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.pop()\n    readings.pop()\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+    )
+
+
+def test_pop_with_an_argument_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.pop(0)\n\ndef loop():\n    pass\n",
+        message="pop() takes exactly 0 arguments but 1 was given.",
+    )
+
+
+def test_pop_from_a_value_that_is_not_a_list_is_rejected(error):
+    error(
+        "def main():\n    value = 1\n    value.pop()\n\ndef loop():\n    pass\n",
+        message="'value' is not a list, so no value can be popped from it.",
+    )
+
+
+def test_pop_in_loop_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    pass\n\ndef loop():\n    readings.pop()\n",
+        message=POP_OUTSIDE,
+        hint="Move the pop() calls into main().",
+    )
+
+
+def test_pop_in_runtime_control_flow_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    for i in range(3):\n        if True:\n            readings.pop()\n\ndef loop():\n    pass\n",
+        message=POP_FLOW,
+        hint="Call pop() once for every value in main().",
+    )
+
+
+INSERT_FLOW = "insert() cannot be used in runtime control flow because the list length changes at compile time."
+INSERT_OUTSIDE = "insert() can only be used in main() because the list length changes at compile time."
+INSERT_RANGE = "The index for insert() must be between 0 and 2."
+
+
+def test_a_value_can_be_inserted_into_a_struct_list(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.insert(0, Reading())\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.globals["readings"].cpp_type == "Reading"
+
+
+def test_a_struct_variable_can_be_inserted(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    reading = Reading()\n    readings.insert(1, reading)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_an_incompatible_primitive_cannot_be_inserted(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(0, 123)\n\ndef loop():\n    pass\n",
+        message="List 'readings' holds Reading values, not int.",
+    )
+
+
+def test_another_struct_cannot_be_inserted(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(0, Sample())\n\ndef loop():\n    pass\n",
+        message="List 'readings' holds Reading values, not Sample.",
+    )
+
+
+def test_a_non_integer_insert_index_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert('first', Reading())\n\ndef loop():\n    pass\n",
+        message="The index passed to insert() must be an integer.",
+    )
+
+
+def test_a_negative_insert_index_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(-1, Reading())\n\ndef loop():\n    pass\n",
+        message=INSERT_RANGE,
+        hint="Values are shifted right, so the index cannot be past the end of the list.",
+    )
+
+
+def test_an_insert_index_past_the_end_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(3, Reading())\n\ndef loop():\n    pass\n",
+        message=INSERT_RANGE,
+    )
+
+
+def test_an_insert_index_that_is_not_constant_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    where = 1\n    readings.insert(where, Reading())\n\ndef loop():\n    pass\n",
+        message="The index passed to insert() must be a constant integer.",
+        hint="The list length is known at compile time, so insert() needs a fixed index.",
+    )
+
+
+def test_insert_into_an_empty_list_is_accepted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.insert(0, Reading())
+            reading = readings.pop()
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_insert_after_an_append_is_accepted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.insert(1, Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.globals["readings"].append_count == 1
+
+
+def test_insert_after_a_pop_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.pop()\n    readings.insert(1, Reading())\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].pop_count == 1
+    assert compiled.context.globals["readings"].insert_count == 1
+
+
+def test_more_pops_than_values_after_inserts_are_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    readings.insert(0, Reading())\n    readings.pop()\n    readings.pop()\n    readings.pop()\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+    )
+
+
+def test_every_insert_is_counted(result):
+    compiled = result(
+        POP_SHELL
+        + "def main():\n    readings.insert(0, Reading())\n    readings.insert(2, Reading())\n    readings.insert(4, Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].insert_count == 3
+
+
+def test_a_local_list_can_be_inserted_into(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+            readings.insert(0, Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.setup_info.locals["readings"]
+    assert readings.insert_count == 1
+    assert compiled.context.setup_info.locals["size"].cpp_type == "int"
+
+
+def test_a_struct_with_a_struct_field_can_be_inserted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample()]
+
+        def main():
+            samples.insert(0, Sample())
+            sample = samples.pop()
+            first = sample.first
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["samples"].insert_count == 1
+    assert compiled.context.setup_info.locals["sample"].cpp_type == "Sample"
+    assert compiled.context.setup_info.locals["first"].cpp_type == "Reading"
+
+
+def test_insert_needs_an_index_and_a_value(error):
+    error(
+        POP_SHELL + "def main():\n    readings.insert(0)\n\ndef loop():\n    pass\n",
+        message="insert() takes exactly 2 arguments but 1 was given.",
+    )
+
+
+def test_insert_into_a_value_that_is_not_a_list_is_rejected(error):
+    error(
+        "def main():\n    value = 1\n    value.insert(0, 2)\n\ndef loop():\n    pass\n",
+        message="'value' is not a list, so nothing can be inserted into it.",
+    )
+
+
+def test_the_result_of_insert_cannot_be_used(error):
+    error(
+        POP_SHELL + "def main():\n    size = readings.insert(0, Reading())\n\ndef loop():\n    pass\n",
+        message="insert() has to be used as a statement.",
+        hint="readings.insert(0, Reading())",
+    )
+
+
+def test_insert_in_loop_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    pass\n\ndef loop():\n    readings.insert(0, Reading())\n",
+        message=INSERT_OUTSIDE,
+        hint="Move the insert() calls into main().",
+    )
+
+
+def test_insert_in_runtime_control_flow_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    for i in range(3):\n        readings.insert(0, Reading())\n\ndef loop():\n    pass\n",
+        message=INSERT_FLOW,
+        hint="Call insert() once for every value in main().",
+    )
+
+
+CLEAR_FLOW = "clear() cannot be used in runtime control flow because the list length changes at compile time."
+CLEAR_OUTSIDE = "clear() can only be used in main() because the list length changes at compile time."
+
+
+def test_a_list_can_be_cleared(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].clear_growth == 0
+    assert compiled.context.globals["readings"].has_count
+
+
+def test_a_list_of_structs_can_be_cleared(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.clear()\n    size = len(readings)\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].array_len == 2
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_a_local_list_can_be_cleared(result):
+    compiled = result(
+        "def main():\n    readings = [1, 2, 3]\n    readings.clear()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["readings"].clear_growth == 0
+
+
+def test_clearing_an_empty_list_is_accepted(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.clear()
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["readings"].append_count == 1
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_clearing_after_an_append_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.append(Reading())\n    readings.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].append_count == 1
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_clearing_after_an_insert_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.insert(0, Reading())\n    readings.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_clearing_after_a_pop_is_accepted(result):
+    compiled = result(POP_SHELL + "def main():\n    readings.pop()\n    readings.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["readings"].pop_count == 1
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_more_clears_are_allowed(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.clear()\n    readings.append(Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].guaranteed_count == 1
+
+
+def test_a_pop_after_a_clear_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+        hint="Append a value before popping one.",
+    )
+
+
+def test_an_append_after_a_clear_can_be_popped(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.append(Reading())\n    reading = readings.pop()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+    assert compiled.context.globals["readings"].guaranteed_count == 0
+
+
+def test_a_second_pop_after_an_append_and_a_clear_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    readings.clear()\n    readings.append(Reading())\n    readings.pop()\n    readings.pop()\n\ndef loop():\n    pass\n",
+        message="pop() cannot remove a value because 'readings' may be empty.",
+    )
+
+
+def test_an_insert_after_a_clear_is_accepted(result):
+    compiled = result(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.insert(0, Reading())\n    reading = readings.pop()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].insert_count == 1
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_an_insert_after_a_clear_past_the_end_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    readings.clear()\n    readings.insert(1, Reading())\n\ndef loop():\n    pass\n",
+        message="The index for insert() must be between 0 and 0.",
+    )
+
+
+def test_clear_takes_no_arguments(error):
+    error(
+        POP_SHELL + "def main():\n    readings.clear(0)\n\ndef loop():\n    pass\n",
+        message="clear() takes exactly 0 arguments but 1 was given.",
+    )
+
+
+def test_clear_on_a_value_that_is_not_a_list_is_rejected(error):
+    error(
+        "def main():\n    count = 5\n    count.clear()\n\ndef loop():\n    pass\n",
+        message="'count' is not a list, so it cannot be cleared.",
+    )
+
+
+def test_clear_used_as_a_value_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    size = readings.clear()\n\ndef loop():\n    pass\n",
+        message="clear() has to be used as a statement.",
+        hint="readings.clear()",
+    )
+
+
+def test_clear_in_loop_is_rejected(error):
+    error(
+        POP_SHELL + "def main():\n    pass\n\ndef loop():\n    readings.clear()\n",
+        message=CLEAR_OUTSIDE,
+        hint="Move the clear() calls into main().",
+    )
+
+
+def test_clear_in_runtime_control_flow_is_rejected(error):
+    error(
+        POP_SHELL
+        + "def main():\n    for i in range(3):\n        if True:\n            readings.clear()\n\ndef loop():\n    pass\n",
+        message=CLEAR_FLOW,
+        hint="Call clear() once for every time you need to reset the list in main().",
+    )
+
+
+def test_clear_in_a_helper_function_is_rejected(error):
+    error(
+        POP_SHELL + "def reset():\n    readings.clear()\n\ndef main():\n    pass\n\ndef loop():\n    pass\n",
+        message=CLEAR_OUTSIDE,
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(
@@ -1157,10 +2370,161 @@ def test_pulse_in_result_still_rejects_a_genuinely_incompatible_scope_assignment
 
 def test_string_arithmetic_is_rejected(error):
     error(
-        "def main():\n    text = 'a' + 'b'\n\ndef loop():\n    pass\n",
-        message="String arithmetic is not supported.",
-        hint="serial_println()",
+        "def main():\n    text = 'a' - 'b'\n\ndef loop():\n    pass\n",
+        message="Only '+' can be used to build a string.",
+        hint="str()",
     )
+
+
+def test_string_multiplication_is_rejected(error):
+    error(
+        "def main():\n    text = 'a' * 3\n\ndef loop():\n    pass\n",
+        message="Only '+' can be used to build a string.",
+        hint="str()",
+    )
+
+
+def test_adding_a_struct_to_a_string_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            label: str = 'hi'
+            reading = Reading()
+            text = label + reading
+
+        def loop():
+            pass
+        """,
+        message="Operators cannot be used with objects of type 'Reading'.",
+    )
+
+
+def test_adding_two_literals_is_string_concatenation(result):
+    compiled = result("def main():\n    text = 'a' + 'b'\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_string_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = label + '!'\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_literal_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = 'hi ' + label\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_string_and_an_int_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = label + 7\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_string_and_a_float_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = label + 1.5\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_string_and_a_bool_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = label + True\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_an_int_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = 7 + label\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_float_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = 1.5 + label\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_adding_a_bool_and_a_string_is_accepted(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = True + label\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_chained_string_concatenation_is_accepted(result):
+    compiled = result("def main():\n    text = 'a' + str(1) + 'b' + str(2)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_concatenation_can_be_printed(result):
+    compiled = result(
+        "def main():\n    serial_print('value: ' + str(42))\n    serial_println('value: ' + str(42))\n\ndef loop():\n    pass\n"
+    )
+    assert 'Serial.print(String("value: ") + String(42));' in compiled.cpp
+    assert 'Serial.println(String("value: ") + String(42));' in compiled.cpp
+
+
+def test_concatenation_can_be_returned(result):
+    compiled = result(
+        """
+        def label_for(level: int) -> str:
+            return 'level=' + str(level)
+
+        def main():
+            text = label_for(3)
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.functions["label_for"].return_type == "String"
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_concatenation_fills_a_struct_string_field(result):
+    compiled = result(
+        """
+        class Reading:
+            label: str
+            level: int
+
+        def main():
+            reading = Reading()
+            reading.label = 'L' + str(reading.level)
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.classes["Reading"].fields["label"].cpp_type == "String"
+
+
+def test_concatenation_in_a_global_initializer_is_accepted(result):
+    compiled = result("banner = 'ready: ' + str(3)\n" + SHELL)
+    assert compiled.context.globals["banner"].cpp_type == "String"
+
+
+def test_numeric_addition_stays_numeric(result):
+    compiled = result(
+        "def main():\n    total = 10 + 20\n    ratio = 1.5 + 2.5\n    step = total + 1\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["total"].cpp_type == "int"
+    assert compiled.context.setup_info.locals["ratio"].cpp_type == "float"
+    assert compiled.context.setup_info.locals["step"].cpp_type == "int"
+
+
+def test_bool_concatenation_still_uses_the_python_spelling(result):
+    compiled = result("def main():\n    text = str(True) + '!'\n\ndef loop():\n    pass\n")
+    assert 'String(true ? "True" : "False") + String("!")' in compiled.cpp
+
+
+def test_concatenation_inside_runtime_control_flow_is_accepted(result):
+    compiled = result(
+        "def main():\n    count = 0\n    while count < 3:\n        serial_println('n=' + str(count))\n        count += 1\n\ndef loop():\n    pass\n"
+    )
+    assert 'Serial.println(String("n=") + String(count));' in compiled.cpp
+
+
+def test_concatenation_cannot_be_used_as_a_condition_only_by_mistake(result):
+    compiled = result("def main():\n    text = 'a' + str(1)\n    other = 'b' + str(2)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+    assert compiled.context.setup_info.locals["other"].cpp_type == "String"
 
 
 def test_bitwise_operators_need_integers(error):
@@ -1202,6 +2566,133 @@ def test_unsupported_augmented_assignment_is_rejected(error):
     error(
         "def main():\n    value = 2\n    value @= 2\n\ndef loop():\n    pass\n",
         message="Unsupported augmented assignment: MatMult",
+    )
+
+
+def test_str_of_an_int_is_the_string_type(result):
+    compiled = result("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_a_float_is_the_string_type(result):
+    compiled = result("def main():\n    text = str(1.5)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_a_bool_is_the_string_type(result):
+    compiled = result("def main():\n    text = str(True)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_a_string_literal_is_the_string_type(result):
+    compiled = result("def main():\n    text = str('hi')\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_an_annotated_string_is_the_string_type(result):
+    compiled = result("def main():\n    label: str = 'hi'\n    text = str(label)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_result_can_be_assigned_to_an_annotated_string(result):
+    compiled = result("def main():\n    text: str = str(7)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_result_can_fill_a_struct_string_field(result):
+    compiled = result(
+        """
+        class Reading:
+            label: str
+            level: int
+
+        def main():
+            reading = Reading()
+            reading.label = str(reading.level)
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.classes["Reading"].fields["label"].cpp_type == "String"
+
+
+def test_str_result_can_be_printed(result):
+    compiled = result(
+        "def main():\n    serial_print(str(7))\n    serial_println(str(True))\n\ndef loop():\n    pass\n"
+    )
+    assert "Serial.print(String(7));" in compiled.cpp
+    assert 'Serial.println(String(true ? "True" : "False"));' in compiled.cpp
+
+
+def test_str_can_be_nested(result):
+    compiled = result("def main():\n    text = str(str(7))\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_of_an_api_call_is_accepted(result):
+    compiled = result("def main():\n    text = str(analog_read(0))\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_str_in_runtime_control_flow_is_accepted(result):
+    compiled = result(
+        "def main():\n    count = 0\n    while count < 3:\n        serial_println(str(count))\n        count += 1\n\ndef loop():\n    pass\n"
+    )
+    assert "Serial.println(String(count));" in compiled.cpp
+
+
+def test_str_without_arguments_is_rejected(error):
+    error(
+        "def main():\n    str()\n\ndef loop():\n    pass\n",
+        message="str() takes exactly 1 argument but 0 were given.",
+    )
+
+
+def test_str_with_two_arguments_is_rejected(error):
+    error(
+        "def main():\n    str(1, 2)\n\ndef loop():\n    pass\n",
+        message="str() takes exactly 1 argument but 2 were given.",
+    )
+
+
+def test_str_of_a_struct_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            reading = Reading()
+            text = str(reading)
+
+        def loop():
+            pass
+        """,
+        message="str() cannot convert a Reading value.",
+        hint="str() supports int, float, bool, and string values.",
+    )
+
+
+def test_str_of_a_list_is_rejected(error):
+    error(
+        "def main():\n    values = [1, 2, 3]\n    text = str(values)\n\ndef loop():\n    pass\n",
+        message="Array 'values' cannot be used as a value.",
+    )
+
+
+def test_str_of_an_arduino_object_is_rejected(error):
+    error(
+        "def main():\n    text = str(Serial)\n\ndef loop():\n    pass\n",
+        message="str() cannot convert a Serial value.",
+        hint="str() supports int, float, bool, and string values.",
+    )
+
+
+def test_str_bare_name_is_rejected(error):
+    error(
+        "def main():\n    str\n\ndef loop():\n    pass\n",
+        message="'str' must be called: str(value)",
     )
 
 

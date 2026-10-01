@@ -186,20 +186,43 @@ class ExpressionEmitter:
                 base = node.args[0]
                 if isinstance(base, ast.Name):
                     array = self.name(base.id)
+                    tracked = self.ctx.tracked_arrays.get(id(base))
+                    if tracked is not None and tracked.has_count:
+                        return self.ctx.count_name(base.id)
                     return f"(sizeof({array}) / sizeof({array}[0]))"
                 self.ctx.error(node, "Internal error: len() on an unsupported expression")
+            if name == "str":
+                return self._str_call(node)
             if name == "String":
                 return f"String({args})"
             if name in self.ctx.classes or name in self.ctx.functions or name in self.ctx.external_types:
                 return f"{self.name(name)}({args})"
             self.ctx.error(node, f"Internal error: unknown function {name}()")
         if isinstance(func, ast.Attribute):
+            if func.attr == "append" and isinstance(func.value, ast.Name):
+                return f"{self.expr(func.value)}[{self.ctx.count_name(func.value.id)}++] = {args}"
+            if func.attr == "pop" and isinstance(func.value, ast.Name):
+                return f"{self.expr(func.value)}[--{self.ctx.count_name(func.value.id)}]"
             if isinstance(func.value, ast.Name) and func.value.id == "self":
                 return f"this->{self.name(func.attr)}({args})"
             return f"{self.expr(func.value)}.{self._member_name(func.value, func.attr)}({args})"
         self.ctx.error(node, "Internal error: unsupported call expression")
 
         return ""
+
+    def _str_call(self, node: ast.Call) -> str:
+        arg = node.args[0]
+        value = self.value(arg)
+        if self.type_of(arg) in ("String", "const char*"):
+            return value
+        return self._text_of(arg, value, self._expr(arg)[1])
+
+    def _text_of(self, node: ast.AST, text: str, precedence: int) -> str:
+        if self.type_of(node) == "bool":
+            if precedence <= PRE_TERNARY:
+                text = f"({text})"
+            return f'String({text} ? "True" : "False")'
+        return f"String({text})"
 
     def _binop(self, node: ast.BinOp) -> Tuple[str, int]:
         op = node.op
@@ -214,6 +237,10 @@ class ExpressionEmitter:
                 return (f"floor({left} / {right})", PRE_ATOM)
             return (f"fmod({left}, {right})", PRE_ATOM)
         token, precedence = BINOP_TOKENS[type(op)]
+        if isinstance(op, ast.Add) and self.type_of(node) == "String":
+            left = self._concat_operand(node.left, precedence, allow_equal=True)
+            right = self._concat_operand(node.right, precedence, allow_equal=False)
+            return (f"{left} + {right}", precedence)
         left_text, left_precedence = self._expr(node.left)
         right_text, right_precedence = self._expr(node.right)
         if self._needs_parentheses(node.left, left_precedence, precedence, allow_equal=True):
@@ -222,6 +249,14 @@ class ExpressionEmitter:
             right_text = f"({right_text})"
 
         return (f"{left_text} {token} {right_text}", precedence)
+
+    def _concat_operand(self, node: ast.AST, precedence: int, *, allow_equal: bool) -> str:
+        text, child = self._expr(node)
+        if self._needs_parentheses(node, child, precedence, allow_equal=allow_equal):
+            text = f"({text})"
+        if self.type_of(node) == "String":
+            return text
+        return self._text_of(node, text, child)
 
     def _boolop(self, node: ast.BoolOp) -> Tuple[str, int]:
         if isinstance(node.op, ast.And):

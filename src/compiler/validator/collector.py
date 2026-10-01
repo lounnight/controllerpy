@@ -256,6 +256,7 @@ class Validator:
             self.ctx.error(node, f"Class '{name}' is defined more than once.")
 
         info = ClassInfo(name=name, node=node, lineno=node.lineno, col_offset=node.col_offset)
+        info.is_struct = not any(isinstance(item, ast.FunctionDef) for item in node.body)
         for item in node.body:
             if is_docstring(item) or isinstance(item, ast.Pass):
                 continue
@@ -286,6 +287,8 @@ class Validator:
                     if item.name in info.methods:
                         self.ctx.error(item, f"Method '{item.name}' is defined more than once.")
                     info.methods[item.name] = method
+            elif isinstance(item, ast.AnnAssign) and info.is_struct:
+                self._collect_struct_field(info, item)
             elif isinstance(item, (ast.Assign, ast.AnnAssign)):
                 self.ctx.error(
                     item,
@@ -296,6 +299,34 @@ class Validator:
             else:
                 self._unsupported(item)
         self.ctx.add_class(info)
+
+    def _collect_struct_field(self, info: ClassInfo, node: ast.AnnAssign) -> None:
+        target = node.target
+        if not isinstance(target, ast.Name):
+            self.ctx.error(target, "Only a simple name can be declared as a struct field.")
+            return
+        field_name = target.id
+        if field_name in info.fields:
+            self.ctx.error(target, f"Struct field '{field_name}' is declared more than once.")
+        if node.value is not None:
+            self.ctx.error(
+                node.value,
+                "A struct field cannot have a value.",
+                hint="A struct field only declares its type:",
+                hint_lines=[f"{field_name}: int"],
+            )
+        annotation = self._annotation(node.annotation)
+        if annotation == VOID_TYPE:
+            self.ctx.error(node.annotation, "'None' is not a valid field type.")
+        self._check_reserved_variable(target, field_name)
+        field = VarInfo(
+            name=field_name,
+            cpp_type=annotation,
+            lineno=target.lineno,
+            col_offset=target.col_offset,
+        )
+        field.record_type(annotation)
+        info.fields[field_name] = field
 
     def _collect_global_targets(self, target: ast.AST) -> List[ast.Name]:
         if isinstance(target, (ast.Tuple, ast.List)):
@@ -360,7 +391,7 @@ class Validator:
             api = API_FUNCTIONS.get(name)
             if api is not None:
                 return "serial" if api.receiver else "api"
-            if name in BUILTIN_FUNCTIONS or name in ("len", "String"):
+            if name in BUILTIN_FUNCTIONS or name in ("len", "str", "String"):
                 return "builtin"
             if name in self.ctx.functions:
                 return "user"
@@ -411,6 +442,12 @@ class Validator:
         )
 
     def _finalize_var(self, var: VarInfo) -> None:
+        if var.is_array and var.array_len == 0 and not var.append_count and not var.insert_count:
+            self._var_error(
+                var,
+                "Empty lists are not supported.",
+                hint="Give the array at least one element.",
+            )
         merged = var.final_type()
         if merged == CONFLICT_TYPE:
             self._var_error(

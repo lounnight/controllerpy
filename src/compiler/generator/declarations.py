@@ -36,7 +36,7 @@ class DeclarationEmitter:
         cpp_type = var.cpp_type if var.cpp_type != UNKNOWN_TYPE else "int"
         declarator = self.name(var.name)
         if var.is_array:
-            size = "" if var.array_len is None else str(var.array_len)
+            size = "" if var.array_len is None else str(var.array_len + var.append_count + var.insert_count)
             declarator = f"{declarator}[{size}]"
         use_const = var.is_const if const is None else const
         if use_const and cpp_type != "const char*":
@@ -52,16 +52,19 @@ class DeclarationEmitter:
         return ", ".join(parts)
 
     def global_declaration(self, var: VarInfo) -> str:
-        if self.is_object(var):
+        if self.is_object(var) and not var.is_array:
             if isinstance(var.value, ast.Call):
                 return f"{self.object_declaration(var, var.value)};"
             type_name = var.cpp_type if var.cpp_type != UNKNOWN_TYPE else "int"
             return f"{self.name(type_name)} {self.name(var.name)};"
         declaration = self.declaration(var, const=var.is_const)
-        if var.value is None:
+        if var.value is None or (var.is_array and not var.array_len):
             return f"{declaration};"
 
         return f"{declaration} = {self.exprs.value(var.value)};"
+
+    def counter_declaration(self, var: VarInfo) -> str:
+        return f"int {self.ctx.count_name(var.name)} = {var.array_len}"
 
     def object_declaration(self, var: VarInfo, call: ast.Call) -> str:
         type_name = var.cpp_type if var.cpp_type != UNKNOWN_TYPE else "int"

@@ -72,6 +72,8 @@ class CppGenerator:
             if self.declarations.is_object(var) != objects:
                 continue
             self.w.line(self.declarations.global_declaration(var))
+            if var.has_count:
+                self.w.line(f"{self.declarations.counter_declaration(var)};")
             emitted = True
         if emitted:
             self.w.blank()
@@ -90,4 +92,7 @@ class CppGenerator:
 
     def _emit_classes(self) -> None:
         for cls in order_classes(self.ctx):
-            self.statements.class_definition(cls)
+            if cls.is_struct:
+                self.statements.struct_definition(cls)
+            else:
+                self.statements.class_definition(cls)

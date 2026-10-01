@@ -71,6 +71,15 @@ class StatementEmitter:
         self.w.line("}")
         self.w.blank()
 
+    def struct_definition(self, struct: ClassInfo) -> None:
+        self.w.line(f"struct {self.decl.name(struct.name)} {{")
+        self.w.indent()
+        for field in struct.fields.values():
+            self.w.line(f"{self.decl.declaration(field)};")
+        self.w.dedent()
+        self.w.line("};")
+        self.w.blank()
+
     def class_definition(self, cls: ClassInfo) -> None:
         self.w.line(f"class {self.decl.name(cls.name)} {{")
         self.w.line("public:")
@@ -138,7 +147,7 @@ class StatementEmitter:
         elif isinstance(stmt, ast.AugAssign):
             self._emit_augassign(stmt)
         elif isinstance(stmt, ast.Expr):
-            self.w.line(f"{self.exprs.expr(stmt.value)};")
+            self._emit_expr_statement(stmt)
         elif isinstance(stmt, ast.If):
             self._emit_if(stmt)
         elif isinstance(stmt, ast.While):
@@ -155,6 +164,36 @@ class StatementEmitter:
             self.w.line("continue;")
         else:  # pragma: no cover - defensive
             self.ctx.error(stmt, f"Internal error: unhandled statement {type(stmt).__name__}")
+
+    def _emit_expr_statement(self, node: ast.Expr) -> None:
+        call = node.value
+        if (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+        ):
+            base_name = call.func.value
+            count = self.ctx.count_name(base_name.id)
+            attr = call.func.attr
+            if attr == "pop":
+                self.w.line(f"--{count};")
+                return
+            if attr == "clear":
+                self.w.line(f"{count} = 0;")
+                return
+            if attr == "insert":
+                index = constant_int(call.args[0]) or 0
+                shift = "controllerpy_shift"
+                base = self.exprs.expr(base_name)
+                self.w.line(f"for (int {shift} = {count}; {shift} > {index}; {shift}--) {{")
+                self.w.indent()
+                self.w.line(f"{base}[{shift}] = {base}[{shift} - 1];")
+                self.w.dedent()
+                self.w.line("}")
+                self.w.line(f"{base}[{index}] = {self.exprs.value(call.args[1])};")
+                self.w.line(f"{count}++;")
+                return
+        self.w.line(f"{self.exprs.expr(node.value)};")
 
     def _emit_assign(self, node: ast.Assign) -> None:
         targets = list(node.targets)
@@ -229,10 +268,18 @@ class StatementEmitter:
         if isinstance(target, ast.Name):
             local = self._local_info(target.id)
             if local is not None and local.declare_node is stmt:
-                if self.ctx.is_object_type(local.cpp_type) and isinstance(value, ast.Call):
+                if local.is_array and not local.array_len:
+                    self.w.line(f"{self.decl.declaration(local)};")
+                elif (
+                    self.ctx.is_object_type(local.cpp_type)
+                    and isinstance(value, ast.Call)
+                    and isinstance(value.func, ast.Name)
+                ):
                     self.w.line(f"{self.decl.object_declaration(local, value)};")
                 else:
                     self.w.line(f"{self.decl.declaration(local)} = {self.exprs.value(value)};")
+                if local.has_count:
+                    self.w.line(f"{self.decl.counter_declaration(local)};")
             else:
                 self.w.line(f"{self.decl.name(target.id)} = {self.exprs.value(value)};")
             return

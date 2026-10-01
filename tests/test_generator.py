@@ -686,6 +686,262 @@ def test_string_annotation_uses_the_arduino_string_class(program):
     assert 'String label = "hi";' in cpp
 
 
+def test_str_of_an_int_uses_the_arduino_string_class(program):
+    cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
+    assert "    String text = String(counter);\n" in cpp
+
+
+def test_str_of_a_float_uses_the_arduino_string_class(program):
+    cpp = program("def main():\n    text = str(1.5)\n\ndef loop():\n    pass\n")
+    assert "    String text = String(1.5);\n" in cpp
+
+
+def test_str_of_a_bool_prints_the_python_spelling(program):
+    cpp = program(
+        "def main():\n    text = str(True)\n    other = str(1 < 2)\n\ndef loop():\n    pass\n"
+    )
+    assert '    String text = String(true ? "True" : "False");\n' in cpp
+    assert '    String other = String(1 < 2 ? "True" : "False");\n' in cpp
+
+
+def test_str_of_a_string_literal_keeps_the_literal(program):
+    cpp = program("def main():\n    text = str('hi')\n\ndef loop():\n    pass\n")
+    assert "    String text = \"hi\";\n" in cpp
+    assert "String(" not in cpp
+
+
+def test_str_of_a_string_value_is_an_identity(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = str(label)\n\ndef loop():\n    pass\n")
+    assert "    String text = label;\n" in cpp
+    assert "String(" not in cpp.split("String label = ")[1]
+
+
+def test_str_of_a_nested_str_is_an_identity(program):
+    cpp = program("def main():\n    text = str(str(7))\n\ndef loop():\n    pass\n")
+    assert "    String text = String(7);\n" in cpp
+    assert cpp.count("String(") == 1
+
+
+def test_str_result_can_be_printed(program):
+    cpp = program(
+        """
+        def main():
+            serial_print(str(7))
+            serial_println(str(1.5))
+            serial_println(str(True))
+            serial_print(str('hi'))
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Serial.print(String(7));\n" in cpp
+    assert "    Serial.println(String(1.5));\n" in cpp
+    assert '    Serial.println(String(true ? "True" : "False"));\n' in cpp
+    assert '    Serial.print("hi");\n' in cpp
+
+
+def test_str_result_can_fill_a_struct_string_field(program):
+    cpp = program(
+        """
+        class Reading:
+            label: str
+            level: int
+
+        def main():
+            reading = Reading()
+            reading.label = str(reading.level)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    String label;\n    int level;\n};\n" in cpp
+    assert "    reading.label = String(reading.level);\n" in cpp
+
+
+def test_str_of_an_api_call_is_generated(program):
+    cpp = program("def main():\n    serial_println(str(analog_read(0)))\n\ndef loop():\n    pass\n")
+    assert "    Serial.println(String(analogRead(0)));\n" in cpp
+
+
+def test_str_is_available_inside_runtime_control_flow(program):
+    cpp = program(
+        """
+        def main():
+            count = 0
+            while count < 3:
+                serial_println(str(count))
+                count += 1
+
+        def loop():
+            pass
+        """
+    )
+    assert "        Serial.println(String(count));\n" in cpp
+
+
+def test_a_literal_and_a_string_are_concatenated(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = 'hi ' + label\n\ndef loop():\n    pass\n")
+    assert '    String text = String("hi ") + label;\n' in cpp
+
+
+def test_a_string_and_a_literal_are_concatenated(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = label + '!'\n\ndef loop():\n    pass\n")
+    assert '    String text = label + String("!");\n' in cpp
+
+
+def test_two_literals_are_concatenated_into_a_string(program):
+    cpp = program("def main():\n    text = 'hello ' + 'world'\n\ndef loop():\n    pass\n")
+    assert '    String text = String("hello ") + String("world");\n' in cpp
+    assert 'const char* text = "hello " + "world"' not in cpp
+
+
+def test_a_string_and_a_primitive_are_concatenated(program):
+    cpp = program(
+        """
+        name = 'sample'
+
+        def main():
+            label: str = 'hi'
+            count = label + 7
+            ratio = label + 1.5
+            full = label + name
+
+        def loop():
+            pass
+        """
+    )
+    assert "    String count = label + String(7);\n" in cpp
+    assert "    String ratio = label + String(1.5);\n" in cpp
+    assert "    String full = label + String(name);\n" in cpp
+
+
+def test_a_primitive_and_a_string_are_concatenated(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = 7 + label\n\ndef loop():\n    pass\n")
+    assert "    String text = String(7) + label;\n" in cpp
+
+
+def test_a_bool_in_concatenation_keeps_the_python_spelling(program):
+    cpp = program("def main():\n    label: str = 'hi'\n    text = label + True\n\ndef loop():\n    pass\n")
+    assert '    String text = label + String(true ? "True" : "False");\n' in cpp
+
+
+def test_a_bool_concatenated_first_keeps_the_python_spelling(program):
+    cpp = program("def main():\n    text = str(True) + '!'\n\ndef loop():\n    pass\n")
+    assert '    String text = String(true ? "True" : "False") + String("!");\n' in cpp
+
+
+def test_concatenation_uses_str_for_values(program):
+    cpp = program("def main():\n    text = 'value: ' + str(42)\n\ndef loop():\n    pass\n")
+    assert '    String text = String("value: ") + String(42);\n' in cpp
+
+
+def test_chained_concatenation_is_generated(program):
+    cpp = program("def main():\n    text = 'a' + str(1) + 'b' + str(2)\n\ndef loop():\n    pass\n")
+    assert '    String text = String("a") + String(1) + String("b") + String(2);\n' in cpp
+
+
+def test_chained_concatenation_keeps_left_to_right_grouping(program):
+    cpp = program("def main():\n    text = 'a' + ('b' + str(2))\n\ndef loop():\n    pass\n")
+    assert '    String text = String("a") + (String("b") + String(2));\n' in cpp
+
+
+def test_concatenation_can_be_printed(program):
+    cpp = program(
+        """
+        def main():
+            serial_print('value: ' + str(42))
+            serial_println('value: ' + str(42))
+
+        def loop():
+            pass
+        """
+    )
+    assert '    Serial.print(String("value: ") + String(42));\n' in cpp
+    assert '    Serial.println(String("value: ") + String(42));\n' in cpp
+
+
+def test_chained_concatenation_can_be_printed(program):
+    cpp = program("def main():\n    serial_println('a=' + str(10) + ',b=' + str(20))\n\ndef loop():\n    pass\n")
+    assert '    Serial.println(String("a=") + String(10) + String(",b=") + String(20));\n' in cpp
+
+
+def test_concatenation_can_be_returned(program):
+    cpp = program(
+        """
+        def label_for(level: int) -> str:
+            return 'level=' + str(level)
+
+        def main():
+            text = label_for(3)
+
+        def loop():
+            pass
+        """
+    )
+    assert '    return String("level=") + String(level);\n' in cpp
+
+
+def test_concatenation_fills_a_struct_string_field(program):
+    cpp = program(
+        """
+        class Reading:
+            label: str
+            level: int
+
+        def main():
+            reading = Reading()
+            reading.label = 'L' + str(reading.level)
+
+        def loop():
+            pass
+        """
+    )
+    assert '    reading.label = String("L") + String(reading.level);\n' in cpp
+
+
+def test_concatenation_in_a_global_initializer_is_generated(program):
+    cpp = program("banner = 'ready: ' + str(3)\n" + SHELL)
+    assert 'const String banner = String("ready: ") + String(3);\n' in cpp
+
+
+def test_numeric_addition_is_not_converted_to_a_string(program):
+    cpp = program(
+        """
+        def main():
+            total = 10 + 20
+            ratio = 1.5 + 2.5
+            step = total + 1
+            flag = True + False
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int total = 10 + 20;\n" in cpp
+    assert "    float ratio = 1.5 + 2.5;\n" in cpp
+    assert "    int step = total + 1;\n" in cpp
+    assert "    int flag = true + false;\n" in cpp
+    assert "String(" not in cpp
+
+
+def test_concatenation_inside_runtime_control_flow_is_generated(program):
+    cpp = program(
+        """
+        def main():
+            count = 0
+            while count < 3:
+                serial_println('n=' + str(count))
+                count += 1
+
+        def loop():
+            pass
+        """
+    )
+    assert '        Serial.println(String("n=") + String(count));\n' in cpp
+
+
 def test_pass_produces_an_empty_block(program):
     cpp = program("def main():\n    pass\n\ndef loop():\n    pass\n")
     assert "void setup() {\n}" in cpp
@@ -1373,6 +1629,891 @@ def test_prototypes_are_emitted_before_use(program):
     cpp = program("def helper():\n    digital_write(13, HIGH)\n" + SHELL)
     assert "void helper();" in cpp
     assert cpp.index("void helper();") < cpp.index("void setup()")
+
+
+# ------------------------------------------------------------------- structs
+def test_a_class_of_fields_becomes_a_cpp_struct(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+            y: float
+
+        def main():
+            point = Point()
+            point.x = 3
+            point.y = 1.5
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.count("struct Point {") == 1
+    assert "public:" not in cpp
+    assert "    int x;\n    float y;\n};" in cpp
+    assert "    Point point;\n" in cpp
+    assert "    point.x = 3;\n" in cpp
+    assert "    point.y = 1.5;\n" in cpp
+
+
+def test_a_struct_field_keeps_its_declared_type(program):
+    cpp = program(
+        """
+        class Reading:
+            label: str
+
+        def main():
+            reading = Reading()
+            reading.label = "voltage"
+
+        def loop():
+            pass
+        """
+    )
+    assert "    String label;\n};" in cpp
+    assert "    reading.label = \"voltage\";\n" in cpp
+
+
+def test_a_struct_object_is_declared_after_its_struct(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+
+        origin = Point()
+
+        def main():
+            origin.x = 1
+
+        def loop():
+            pass
+        """
+    )
+    assert "Point origin;" in cpp
+    assert cpp.index("struct Point {") < cpp.index("Point origin;")
+
+
+def test_a_struct_may_be_a_parameter_and_a_return_type(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+
+        def shifted(point: Point) -> Point:
+            other = Point()
+            other.x = point.x + 1
+            return other
+
+        def main():
+            start = Point()
+            start.x = 1
+            shifted(start)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Point shifted(Point point);" in cpp
+    assert "Point shifted(Point point) {" in cpp
+    assert "    Point other;" in cpp
+    assert "    return other;" in cpp
+
+
+def test_a_struct_may_hold_another_struct(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+
+        class Waypoint:
+            point: Point
+
+        def main():
+            waypoint = Waypoint()
+            waypoint.point = Point()
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Point point;\n};" in cpp
+    assert "    Waypoint waypoint;\n" in cpp
+    assert "    waypoint.point = Point();\n" in cpp
+    assert cpp.index("struct Point {") < cpp.index("struct Waypoint {")
+
+
+def test_a_class_may_hold_a_struct(program):
+    cpp = program(
+        """
+        class Point:
+            x: int
+
+        class Marker:
+            def __init__(self, origin: Point):
+                self.origin = origin
+
+        def main():
+            marker = Marker(Point())
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Point origin;\n" in cpp
+    assert "    Marker(Point origin) {" in cpp
+    assert "    Marker marker(Point());" in cpp
+    assert cpp.index("struct Point {") < cpp.index("class Marker {")
+
+
+def test_a_struct_field_named_after_a_cpp_keyword_is_renamed(program):
+    cpp = program(
+        """
+        class Flag:
+            explicit: bool
+
+        def main():
+            flag = Flag()
+            flag.explicit = True
+
+        def loop():
+            pass
+        """
+    )
+    assert "    bool explicit_;\n};" in cpp
+    assert "    flag.explicit_ = true;\n" in cpp
+
+
+def test_a_list_of_struct_objects_becomes_a_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2] = {Reading(), Reading()};" in cpp
+    assert "const Reading" not in cpp
+    assert cpp.index("struct Reading {") < cpp.index("Reading readings[2]")
+
+
+def test_a_local_list_of_struct_objects_becomes_a_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Reading readings[2] = {Reading(), Reading()};\n" in cpp
+    assert "    int size = (sizeof(readings) / sizeof(readings[0]));\n" in cpp
+
+
+def test_a_list_of_structs_with_nested_struct_fields_becomes_a_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            label: str
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "Sample samples[2] = {Sample(), Sample()};" in cpp
+    assert cpp.index("struct Reading {") < cpp.index("struct Sample {")
+    assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
+
+
+def test_indexing_a_struct_array_reads_elements_and_fields(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            element = readings[0]
+            value = readings[0].value
+            bright = readings[1].bright
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Reading element = readings[0];\n" in cpp
+    assert "    int value = readings[0].value;\n" in cpp
+    assert "    bool bright = readings[1].bright;\n" in cpp
+
+
+def test_indexing_a_struct_array_writes_fields(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            readings[0].value = 123
+            readings[1].bright = True
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings[0].value = 123;\n" in cpp
+    assert "    readings[1].bright = true;\n" in cpp
+
+
+def test_indexing_nested_struct_fields_through_an_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            value = samples[0].first.value
+            samples[1].first.value = 7
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int value = samples[0].first.value;\n" in cpp
+    assert "    samples[1].first.value = 7;\n" in cpp
+
+
+def test_a_whole_struct_can_be_assigned_to_an_array_element(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            reading = Reading()
+            reading.value = 4
+            readings[0] = Reading()
+            readings[1] = reading
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings[0] = Reading();\n" in cpp
+    assert "    readings[1] = reading;\n" in cpp
+
+
+def test_a_whole_struct_can_be_assigned_to_a_nested_struct_array_element(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            samples[0] = Sample()
+            samples[1] = samples[0]
+
+        def loop():
+            pass
+        """
+    )
+    assert "    samples[0] = Sample();\n" in cpp
+    assert "    samples[1] = samples[0];\n" in cpp
+
+
+def test_an_appended_struct_list_becomes_a_counted_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.append(Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2];\n" in cpp
+    assert "int readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert cpp.count("readings[readings_count++] = Reading();") == 2
+    assert "    int size = readings_count;\n" in cpp
+    assert cpp.index("struct Reading {") < cpp.index("Reading readings[2]")
+
+
+def test_a_local_appended_struct_list_becomes_a_counted_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = []
+            reading = Reading()
+            readings.append(reading)
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Reading readings[1];\n" in cpp
+    assert "    int readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = reading;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_list_literal_and_an_append_size_the_array_for_both(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading()]
+
+        def main():
+            readings.append(Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2] = {Reading()};\n" in cpp
+    assert "int readings_count = 1;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+
+
+def test_a_struct_with_struct_fields_can_be_appended(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = []
+
+        def main():
+            samples.append(Sample())
+            samples.append(Sample())
+            size = len(samples)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Sample samples[2];\n" in cpp
+    assert "int samples_count = 0;\n" in cpp
+    assert "    samples[samples_count++] = Sample();\n" in cpp
+    assert "    int size = samples_count;\n" in cpp
+    assert cpp.index("struct Reading {") < cpp.index("struct Sample {")
+    assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
+
+
+def test_a_popped_struct_decrements_the_count_and_reads_the_last_element(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            reading = readings.pop()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2] = {Reading(), Reading()};\n" in cpp
+    assert "int readings_count = 2;\n" in cpp
+    assert "    Reading reading = readings[--readings_count];\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_pop_used_as_a_statement_only_decrements_the_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.pop()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    --readings_count;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+    assert "readings[--readings_count];" not in cpp
+
+
+def test_a_popped_struct_can_be_read_afterwards(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            sample = samples.pop()
+            first = sample.first
+            value = first.value
+
+        def loop():
+            pass
+        """
+    )
+    assert "int samples_count = 2;\n" in cpp
+    assert "    Sample sample = samples[--samples_count];\n" in cpp
+    assert "    Reading first = sample.first;\n" in cpp
+    assert "    int value = first.value;\n" in cpp
+
+
+def test_a_pop_after_appends_uses_the_same_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.append(Reading())
+            reading = readings.pop()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2];\n" in cpp
+    assert "int readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert "    Reading reading = readings[--readings_count];\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_local_popped_list_reflects_the_count_in_len(program):
+    cpp = program(
+        """
+        def main():
+            readings = [1, 2, 3]
+            size = len(readings)
+            biggest = readings.pop()
+            after = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int readings[3] = {1, 2, 3};\n" in cpp
+    assert "    int readings_count = 3;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+    assert "    int biggest = readings[--readings_count];\n" in cpp
+    assert "    int after = readings_count;\n" in cpp
+
+
+def test_an_inserted_struct_shifts_the_existing_values(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.insert(1, Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[3] = {Reading(), Reading()};\n" in cpp
+    assert "int readings_count = 2;\n" in cpp
+    assert (
+        "    for (int controllerpy_shift = readings_count; controllerpy_shift > 1; controllerpy_shift--) {\n"
+    ) in cpp
+    assert "        readings[controllerpy_shift] = readings[controllerpy_shift - 1];\n" in cpp
+    assert "    readings[1] = Reading();\n" in cpp
+    assert "    readings_count++;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+    assert cpp.index("struct Reading {") < cpp.index("Reading readings[3]")
+
+
+def test_an_insert_at_the_end_of_the_list_grows_the_capacity(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.insert(2, Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[3] = {Reading(), Reading()};\n" in cpp
+    assert "controllerpy_shift > 2" in cpp
+    assert "    readings[2] = Reading();\n" in cpp
+
+
+def test_multiple_inserts_grow_the_capacity_and_the_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.insert(0, Reading())
+            readings.insert(2, Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[4] = {Reading(), Reading()};\n" in cpp
+    assert cpp.count("controllerpy_shift = readings_count") == 2
+    assert cpp.count("readings_count++;") == 2
+    assert "    readings[0] = Reading();\n" in cpp
+    assert "    readings[2] = Reading();\n" in cpp
+
+
+def test_an_insert_after_an_append_shares_the_runtime_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.insert(1, Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2];\n" in cpp
+    assert "int readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert "controllerpy_shift = readings_count; controllerpy_shift > 1" in cpp
+    assert "    readings[1] = Reading();\n" in cpp
+
+
+def test_an_insert_into_a_local_list_uses_the_local_count(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+            readings.insert(0, Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Reading readings[3] = {Reading(), Reading()};\n" in cpp
+    assert "    int readings_count = 2;\n" in cpp
+    assert "controllerpy_shift = readings_count" in cpp
+    assert "    readings_count++;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_struct_with_struct_fields_can_be_inserted(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = [Sample()]
+
+        def main():
+            samples.insert(0, Sample())
+            size = len(samples)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Sample samples[2] = {Sample()};\n" in cpp
+    assert "int samples_count = 1;\n" in cpp
+    assert "        samples[controllerpy_shift] = samples[controllerpy_shift - 1];\n" in cpp
+    assert "    samples[0] = Sample();\n" in cpp
+    assert "    int size = samples_count;\n" in cpp
+    assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
+
+
+def test_clearing_a_list_resets_its_counter(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings_count = 0;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_clearing_a_list_keeps_its_capacity(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2] = {Reading(), Reading()};\n" in cpp
+    assert "readings[3]" not in cpp
+    assert "readings.clear();" not in cpp
+    assert "controllerpy_shift" not in cpp
+
+
+def test_clearing_a_list_of_primitives_keeps_its_array(program):
+    cpp = program(
+        """
+        readings = [1, 2, 3]
+
+        def main():
+            readings.clear()
+
+        def loop():
+            pass
+        """
+    )
+    assert "int readings[3] = {1, 2, 3};\n" in cpp
+    assert "int readings_count = 3;\n" in cpp
+    assert "    readings_count = 0;\n" in cpp
+
+
+def test_clearing_a_local_list_resets_its_counter(program):
+    cpp = program(
+        """
+        def main():
+            readings = [1, 2, 3]
+            readings.clear()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    int readings[3] = {1, 2, 3};\n" in cpp
+    assert "    int readings_count = 3;\n" in cpp
+    assert "    readings_count = 0;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_list_can_be_appended_to_after_it_is_cleared(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+            readings.append(Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_cleared_list_can_be_popped_after_an_append(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+            readings.append(Reading())
+            reading = readings.pop()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert "    Reading reading = readings[--readings_count];\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_cleared_list_can_be_inserted_into(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.clear()
+            readings.insert(0, Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    readings_count = 0;\n" in cpp
+    assert "controllerpy_shift = readings_count" in cpp
+    assert "    readings[0] = Reading();\n" in cpp
+    assert "    readings_count++;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_list_can_be_cleared_more_than_once(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading(), Reading()]
+
+        def main():
+            readings.append(Reading())
+            readings.clear()
+            readings.clear()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert cpp.count("    readings_count = 0;\n") == 2
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_clearing_a_list_filled_only_by_an_append(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.clear()
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[1];\n" in cpp
+    assert "int readings_count = 0;\n" in cpp
+    assert "    readings_count = 0;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
 
 
 # ---------------------------------------------------------------- formatting

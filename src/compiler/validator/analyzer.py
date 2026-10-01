@@ -28,6 +28,7 @@ from .symbols import ClassInfo, FunctionInfo, MethodInfo, Scope, VarInfo
 from .types import (
     CONFLICT_TYPE,
     DEFAULT_TYPE,
+    SCALAR_TYPES,
     UNKNOWN_TYPE,
     VOID_TYPE,
     merge_types,
@@ -68,6 +69,7 @@ class BodyAnalyzer(ast.NodeVisitor):
         self.owner: Optional[object] = None
         self.class_info: Optional[ClassInfo] = None
         self.entry_name: Optional[str] = None
+        self.in_runtime_flow = False
 
     # ---------------------------------------------------------------- guards
     def generic_visit(self, node: ast.AST) -> None:  # pragma: no cover - safety net
@@ -183,16 +185,24 @@ class BodyAnalyzer(ast.NodeVisitor):
         entry_name: Optional[str],
         body: Sequence[ast.stmt],
     ) -> None:
-        previous = (self.scope, self.owner, self.class_info, self.entry_name)
+        previous = (self.scope, self.owner, self.class_info, self.entry_name, self.in_runtime_flow)
         self.scope, self.owner, self.class_info, self.entry_name = scope, owner, class_info, entry_name
         try:
             self._analyze_body(body)
         finally:
-            self.scope, self.owner, self.class_info, self.entry_name = previous
+            (self.scope, self.owner, self.class_info, self.entry_name, self.in_runtime_flow) = previous
 
     def _analyze_body(self, body: Sequence[ast.stmt]) -> None:
         for stmt in body:
             self.visit(stmt)
+
+    def _analyze_runtime_body(self, body: Sequence[ast.stmt]) -> None:
+        previous = self.in_runtime_flow
+        self.in_runtime_flow = True
+        try:
+            self._analyze_body(body)
+        finally:
+            self.in_runtime_flow = previous
 
     def _prepare_locals(
         self,
@@ -380,18 +390,29 @@ class BodyAnalyzer(ast.NodeVisitor):
     def visit_Expr(self, node: ast.Expr) -> None:
         if is_docstring(node):
             return
+        call = node.value
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute):
+            if call.func.attr == "append":
+                self._append_call_type(call, call.func.value, [self._type(arg) for arg in call.args])
+                return
+            if call.func.attr == "insert":
+                self._insert_call_type(call, call.func.value, [self._type(arg) for arg in call.args])
+                return
+            if call.func.attr == "clear":
+                self._clear_call_type(call, call.func.value)
+                return
         self._type(node.value)
 
     def visit_If(self, node: ast.If) -> None:
         self._type(node.test)
-        self._analyze_body(node.body)
-        self._analyze_body(node.orelse)
+        self._analyze_runtime_body(node.body)
+        self._analyze_runtime_body(node.orelse)
 
     def visit_While(self, node: ast.While) -> None:
         if node.orelse:
             self.ctx.error(node, "Unsupported Python feature: while/else")
         self._type(node.test)
-        self._analyze_body(node.body)
+        self._analyze_runtime_body(node.body)
 
     def visit_For(self, node: ast.For) -> None:
         if node.orelse:
@@ -410,7 +431,7 @@ class BodyAnalyzer(ast.NodeVisitor):
                 hint="Use a while loop for anything else.",
             )
         self._check_range(iterator)
-        self._analyze_body(node.body)
+        self._analyze_runtime_body(node.body)
 
     def _check_range(self, call: ast.Call) -> None:
         if call.keywords:
@@ -544,6 +565,12 @@ class BodyAnalyzer(ast.NodeVisitor):
             if index_type not in ("int", "bool", "char", UNKNOWN_TYPE):
                 self.ctx.error(target.slice, "Array indices must be integers.")
             var.write_count += 1
+            element_type = self._variable_type(var)
+            for observed in types:
+                if observed in (None, UNKNOWN_TYPE):
+                    continue
+                if merge_types(element_type, observed) == CONFLICT_TYPE:
+                    self.ctx.error(target, f"Array '{base.id}' holds {element_type} values, not {observed}.")
             return
 
         self.ctx.error(target, "Unsupported assignment target.")
@@ -619,6 +646,8 @@ class BodyAnalyzer(ast.NodeVisitor):
             self.ctx.error(node, f"'{name}' is a function; call it like {name}(...)")
         if name == "String":
             self.ctx.error(node, "'String' must be called: String(value)")
+        if name == "str":
+            self.ctx.error(node, "'str' must be called: str(value)")
         if name in self.ctx.classes:
             self.ctx.error(node, f"'{name}' is a class; create an object with {name}(...)")
         var = self.scope.lookup(name)
@@ -704,12 +733,21 @@ class BodyAnalyzer(ast.NodeVisitor):
             return merged or UNKNOWN_TYPE
         if name == "len":
             return self._len_type(node)
+        if name == "str":
+            return self._str_type(node, arg_types)
         if name == "String":
             return "String"
         if name == "range":
             self.ctx.error(node, "range() can only be used in a for loop.")
         cls = self.ctx.classes.get(name)
         if cls is not None:
+            if cls.is_struct and node.args:
+                self.ctx.error(
+                    node,
+                    f"Struct '{name}' cannot be created with arguments.",
+                    hint="Create the struct and assign its fields:",
+                    hint_lines=[f"point = {name}()", "point.x = 1"],
+                )
             params = cls.constructor.params if cls.constructor is not None else []
             self._check_arity(node, name, len(node.args), len(params), len(params))
             for param, arg_type in zip(params, arg_types):
@@ -768,6 +806,29 @@ class BodyAnalyzer(ast.NodeVisitor):
             return method.return_type or UNKNOWN_TYPE
         if isinstance(base, ast.Name) and base.id in ARDUINO_OBJECTS:
             return UNKNOWN_TYPE  # Serial.begin(...) / Wire.begin() pass through
+        if attr == "append":
+            self.ctx.error(
+                node,
+                "append() has to be used as a statement.",
+                hint="readings.append(Reading())",
+            )
+            return UNKNOWN_TYPE
+        if attr == "pop":
+            return self._pop_call_type(node, base, arg_types)
+        if attr == "insert":
+            self.ctx.error(
+                node,
+                "insert() has to be used as a statement.",
+                hint="readings.insert(0, Reading())",
+            )
+            return VOID_TYPE
+        if attr == "clear":
+            self.ctx.error(
+                node,
+                "clear() has to be used as a statement.",
+                hint="readings.clear()",
+            )
+            return VOID_TYPE
         base_type = self._type(base)
         if base_type in ARDUINO_OBJECTS:
             return UNKNOWN_TYPE
@@ -805,12 +866,178 @@ class BodyAnalyzer(ast.NodeVisitor):
             if not types_compatible(declared, inferred):
                 self.ctx.error(node.args[index - 1], f"Argument {index} of {label}() must be {declared}, not {inferred}.")
 
+    def _append_call_type(self, node: ast.Call, base: ast.AST, arg_types: Sequence[str]) -> str:
+        if self.in_runtime_flow:
+            self.ctx.error(
+                node,
+                "append() cannot be used in runtime control flow because the list capacity is set at compile time.",
+                hint="Call append() once for every value in main().",
+            )
+            return UNKNOWN_TYPE
+        if self.entry_name != "main":
+            self.ctx.error(
+                node,
+                "append() can only be used in main() because the list capacity is set at compile time.",
+                hint="Move the append() calls into main().",
+            )
+            return UNKNOWN_TYPE
+        if not isinstance(base, ast.Name):
+            self.ctx.error(node, "append() needs a list variable.", hint="values = [1, 2]  then  values.append(3)")
+            return UNKNOWN_TYPE
+        var = self.scope.lookup(base.id)
+        if var is None:
+            self.ctx.error(base, f"'{base.id}' is not defined.")
+            return UNKNOWN_TYPE
+        if not var.is_array:
+            self.ctx.error(node, f"'{base.id}' is not a list, so it cannot be appended to.")
+            return UNKNOWN_TYPE
+        self._check_arity(node, "append", len(node.args), 1, 1)
+        arg_type = arg_types[0]
+        element_type = self._variable_type(var)
+        if element_type not in (UNKNOWN_TYPE, CONFLICT_TYPE) and arg_type not in (UNKNOWN_TYPE, CONFLICT_TYPE):
+            if merge_types(element_type, arg_type) == CONFLICT_TYPE:
+                self.ctx.error(node.args[0], f"List '{base.id}' holds {element_type} values, not {arg_type}.")
+        var.record_type(arg_type)
+        var.append_count += 1
+        var.write_count += 1
+        return VOID_TYPE
+
+    def _pop_call_type(self, node: ast.Call, base: ast.AST, arg_types: Sequence[str]) -> str:
+        if self.in_runtime_flow:
+            self.ctx.error(
+                node,
+                "pop() cannot be used in runtime control flow because the list length changes at compile time.",
+                hint="Call pop() once for every value in main().",
+            )
+            return UNKNOWN_TYPE
+        if self.entry_name != "main":
+            self.ctx.error(
+                node,
+                "pop() can only be used in main() because the list length changes at compile time.",
+                hint="Move the pop() calls into main().",
+            )
+            return UNKNOWN_TYPE
+        if not isinstance(base, ast.Name):
+            self.ctx.error(node, "pop() needs a list variable.", hint="values = [1, 2]  then  value = values.pop()")
+            return UNKNOWN_TYPE
+        var = self.scope.lookup(base.id)
+        if var is None:
+            self.ctx.error(base, f"'{base.id}' is not defined.")
+            return UNKNOWN_TYPE
+        if not var.is_array:
+            self.ctx.error(node, f"'{base.id}' is not a list, so no value can be popped from it.")
+            return UNKNOWN_TYPE
+        self._check_arity(node, "pop", len(node.args), 0, 0)
+        if var.guaranteed_count < 1:
+            self.ctx.error(
+                node,
+                f"pop() cannot remove a value because '{base.id}' may be empty.",
+                hint="Append a value before popping one.",
+            )
+            return UNKNOWN_TYPE
+        var.pop_count += 1
+        var.write_count += 1
+        element_type = self._variable_type(var)
+        if element_type in (UNKNOWN_TYPE, CONFLICT_TYPE):
+            return UNKNOWN_TYPE
+        return element_type
+
+    def _insert_call_type(self, node: ast.Call, base: ast.AST, arg_types: Sequence[str]) -> str:
+        if self.in_runtime_flow:
+            self.ctx.error(
+                node,
+                "insert() cannot be used in runtime control flow because the list length changes at compile time.",
+                hint="Call insert() once for every value in main().",
+            )
+            return VOID_TYPE
+        if self.entry_name != "main":
+            self.ctx.error(
+                node,
+                "insert() can only be used in main() because the list length changes at compile time.",
+                hint="Move the insert() calls into main().",
+            )
+            return VOID_TYPE
+        if not isinstance(base, ast.Name):
+            self.ctx.error(
+                node,
+                "insert() needs a list variable.",
+                hint="values = [1, 2]  then  values.insert(0, 3)",
+            )
+            return VOID_TYPE
+        var = self.scope.lookup(base.id)
+        if var is None:
+            self.ctx.error(base, f"'{base.id}' is not defined.")
+            return VOID_TYPE
+        if not var.is_array:
+            self.ctx.error(node, f"'{base.id}' is not a list, so nothing can be inserted into it.")
+            return VOID_TYPE
+        self._check_arity(node, "insert", len(node.args), 2, 2)
+        if arg_types[0] not in ("int", "bool", "char", UNKNOWN_TYPE):
+            self.ctx.error(node.args[0], "The index passed to insert() must be an integer.")
+            return VOID_TYPE
+        index = constant_int(node.args[0])
+        if index is None:
+            self.ctx.error(
+                node.args[0],
+                "The index passed to insert() must be a constant integer.",
+                hint="The list length is known at compile time, so insert() needs a fixed index.",
+            )
+            return VOID_TYPE
+        count = var.guaranteed_count
+        if not 0 <= index <= count:
+            self.ctx.error(
+                node.args[0],
+                f"The index for insert() must be between 0 and {count}.",
+                hint="Values are shifted right, so the index cannot be past the end of the list.",
+            )
+            return VOID_TYPE
+        arg_type = arg_types[1]
+        element_type = self._variable_type(var)
+        if element_type not in (UNKNOWN_TYPE, CONFLICT_TYPE) and arg_type not in (UNKNOWN_TYPE, CONFLICT_TYPE):
+            if merge_types(element_type, arg_type) == CONFLICT_TYPE:
+                self.ctx.error(node.args[1], f"List '{base.id}' holds {element_type} values, not {arg_type}.")
+        var.record_type(arg_type)
+        var.insert_count += 1
+        var.write_count += 1
+        return VOID_TYPE
+
+    def _clear_call_type(self, node: ast.Call, base: ast.AST) -> str:
+        if self.in_runtime_flow:
+            self.ctx.error(
+                node,
+                "clear() cannot be used in runtime control flow because the list length changes at compile time.",
+                hint="Call clear() once for every time you need to reset the list in main().",
+            )
+            return VOID_TYPE
+        if self.entry_name != "main":
+            self.ctx.error(
+                node,
+                "clear() can only be used in main() because the list length changes at compile time.",
+                hint="Move the clear() calls into main().",
+            )
+            return VOID_TYPE
+        if not isinstance(base, ast.Name):
+            self.ctx.error(node, "clear() needs a list variable.", hint="values = [1, 2]  then  values.clear()")
+            return VOID_TYPE
+        var = self.scope.lookup(base.id)
+        if var is None:
+            self.ctx.error(base, f"'{base.id}' is not defined.")
+            return VOID_TYPE
+        if not var.is_array:
+            self.ctx.error(node, f"'{base.id}' is not a list, so it cannot be cleared.")
+            return VOID_TYPE
+        self._check_arity(node, "clear", len(node.args), 0, 0)
+        var.clear_growth = var.append_count + var.insert_count - var.pop_count
+        var.write_count += 1
+        return VOID_TYPE
+
     def _len_type(self, node: ast.Call) -> str:
         self._check_arity(node, "len", len(node.args), 1, 1)
         base = node.args[0]
         if isinstance(base, ast.Name):
             var = self.scope.lookup(base.id)
             if var is not None and var.is_array:
+                self.ctx.tracked_arrays[id(base)] = var
                 return "int"
         self.ctx.error(
             node,
@@ -818,6 +1045,17 @@ class BodyAnalyzer(ast.NodeVisitor):
             hint="values = [1, 2, 3]  then  len(values)",
         )
         return "int"  # pragma: no cover
+
+    def _str_type(self, node: ast.Call, arg_types: Sequence[str]) -> str:
+        self._check_arity(node, "str", len(node.args), 1, 1)
+        arg_type = arg_types[0]
+        if arg_type not in SCALAR_TYPES and arg_type != UNKNOWN_TYPE:
+            self.ctx.error(
+                node,
+                f"str() cannot convert a {arg_type} value.",
+                hint="str() supports int, float, bool, and string values.",
+            )
+        return "String"
 
     def _subscript_type(self, node: ast.Subscript) -> str:
         base = node.value
@@ -851,14 +1089,17 @@ class BodyAnalyzer(ast.NodeVisitor):
             return "int"
         if isinstance(op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)):
             for operand in (left, right):
+                if self.ctx.is_object_type(operand):
+                    self.ctx.error(node, f"Operators cannot be used with objects of type '{operand}'.")
+            if isinstance(op, ast.Add) and any(operand in ("const char*", "String") for operand in (left, right)):
+                return "String"
+            for operand in (left, right):
                 if operand in ("const char*", "String"):
                     self.ctx.error(
                         node,
-                        "String arithmetic is not supported.",
-                        hint="Print values separately with serial_print()/serial_println().",
+                        "Only '+' can be used to build a string.",
+                        hint="Use str() to convert a value: 'value: ' + str(value)",
                     )
-                if self.ctx.is_object_type(operand):
-                    self.ctx.error(node, f"Operators cannot be used with objects of type '{operand}'.")
             if "float" in (left, right):
                 return "float"
             if UNKNOWN_TYPE in (left, right):
@@ -926,17 +1167,21 @@ class BodyAnalyzer(ast.NodeVisitor):
             self.ctx.error(node, "Both branches of a conditional expression must have the same type.")
         return merged or UNKNOWN_TYPE
 
-    def _literal_elements(self, node: ast.AST) -> Tuple[str, int]:
+    def _literal_elements(self, node: ast.AST) -> Tuple[Optional[str], int]:
         elements = list(getattr(node, "elts"))
         if not elements:
-            self.ctx.error(node, "Empty lists are not supported.", hint="Give the array at least one element.")
+            return None, 0
         element_type: Optional[str] = None
         for element in elements:
             if isinstance(element, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
                 self.ctx.error(element, "Nested lists are not supported on Arduino.", hint="Use separate arrays.")
             observed = self._type(element)
-            if self.ctx.is_object_type(observed):
-                self.ctx.error(element, "Lists of objects are not supported on Arduino.")
+            if self.ctx.is_object_type(observed) and not self.ctx.is_struct_type(observed):
+                self.ctx.error(
+                    element,
+                    "Lists of class objects are not supported on Arduino.",
+                    hint="Use a struct: a class with fields and no methods.",
+                )
             element_type = merge_types(element_type, observed)
             if element_type == CONFLICT_TYPE:
                 self.ctx.error(node, "All elements of a list must have the same type.")

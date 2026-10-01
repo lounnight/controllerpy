@@ -25,6 +25,10 @@ class VarInfo:
     is_global: bool = False
     is_array: bool = False
     array_len: Optional[int] = None
+    append_count: int = 0
+    insert_count: int = 0
+    pop_count: int = 0
+    clear_growth: Optional[int] = None
     is_object: bool = False
     is_external: bool = False
     declare_node: Optional[ast.AST] = None
@@ -53,6 +57,17 @@ class VarInfo:
             return self.cpp_type if self.cpp_type != UNKNOWN_TYPE else DEFAULT_TYPE
         
         return final
+
+    @property
+    def has_count(self) -> bool:
+        return bool(self.append_count or self.insert_count or self.pop_count or self.clear_growth is not None)
+
+    @property
+    def guaranteed_count(self) -> int:
+        growth = self.append_count + self.insert_count - self.pop_count
+        if self.clear_growth is not None:
+            return growth - self.clear_growth
+        return (self.array_len or 0) + growth
 
 
 @dataclass
@@ -94,6 +109,7 @@ class ClassInfo:
     fields: Dict[str, VarInfo] = field(default_factory=dict)
     methods: Dict[str, MethodInfo] = field(default_factory=dict)
     constructor: Optional[MethodInfo] = None
+    is_struct: bool = False
     depends_on: Set[str] = field(default_factory=set)
     lineno: Optional[int] = None
     col_offset: Optional[int] = None

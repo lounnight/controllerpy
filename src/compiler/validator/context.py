@@ -51,6 +51,7 @@ class CompileContext:
         self.warnings: List[str] = []
 
         self.expression_types: Dict[int, str] = {}
+        self.tracked_arrays: Dict[int, VarInfo] = {}
 
     def error(
         self,
@@ -80,6 +81,9 @@ class CompileContext:
         
         return self._renames[name]
 
+    def count_name(self, name: str) -> str:
+        return f"{self.cpp_name(name)}_count"
+
     @staticmethod
     def is_reserved(name: str) -> bool:
         return is_reserved(name)
@@ -95,6 +99,10 @@ class CompileContext:
 
     def is_object_type(self, cpp_type: Optional[str]) -> bool:
         return bool(cpp_type) and (cpp_type in self.classes or self.is_library_type(cpp_type))
+
+    def is_struct_type(self, cpp_type: Optional[str]) -> bool:
+        cls = self.class_of(cpp_type)
+        return cls is not None and cls.is_struct
 
     def is_library_type(self, cpp_type: Optional[str]) -> bool:
         if not cpp_type:
