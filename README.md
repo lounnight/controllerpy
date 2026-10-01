@@ -334,6 +334,45 @@ attributes, method calls. Classes are emitted in dependency order, prototypes
 are generated for every function, and objects created inside a function are
 constructed where they are declared.
 
+### Structs
+
+A class with fields and no methods is a struct: a group of values that is
+created, filled in and passed around by value.
+
+```python
+class Point:
+    x: int
+    y: float
+
+def shifted(point: Point) -> Point:
+    other = Point()
+    other.x = point.x + 1
+    other.y = point.y
+    return other
+```
+
+```cpp
+struct Point {
+    int x;
+    float y;
+};
+
+Point shifted(Point point);
+
+Point shifted(Point point) {
+    Point other;
+    other.x = point.x + 1;
+    other.y = point.y;
+    return other;
+}
+```
+
+Supported: fields declared with a type and no value, a struct as an
+annotation, a parameter or a return type, a struct field or class attribute of
+another struct. A struct is created without arguments (`Point()`) and its
+fields are assigned afterwards; a type annotation can only name a struct that is
+declared above it.
+
 ### Arduino libraries
 
 ```python
@@ -482,7 +521,7 @@ controllerpy/
 ├── pyproject.toml
 ├── main.py                     the acceptance example from the spec
 ├── compiler.py                 deprecated single-file prototype (kept)
-├── examples/                   blink, button, loops, oop, serial, servo
+├── examples/                   blink, button, loops, oop, serial, servo, structs
 ├── src/                        the controllerpy package
 │   ├── cli/                    the argparse front end
 │   │   ├── main.py               entry point: parse, dispatch, errors -> exit code
