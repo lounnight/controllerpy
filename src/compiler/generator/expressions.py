@@ -186,6 +186,9 @@ class ExpressionEmitter:
                 base = node.args[0]
                 if isinstance(base, ast.Name):
                     array = self.name(base.id)
+                    tracked = self.ctx.tracked_arrays.get(id(base))
+                    if tracked is not None and tracked.append_count:
+                        return self.ctx.count_name(base.id)
                     return f"(sizeof({array}) / sizeof({array}[0]))"
                 self.ctx.error(node, "Internal error: len() on an unsupported expression")
             if name == "String":
@@ -194,6 +197,8 @@ class ExpressionEmitter:
                 return f"{self.name(name)}({args})"
             self.ctx.error(node, f"Internal error: unknown function {name}()")
         if isinstance(func, ast.Attribute):
+            if func.attr == "append" and isinstance(func.value, ast.Name):
+                return f"{self.expr(func.value)}[{self.ctx.count_name(func.value.id)}++] = {args}"
             if isinstance(func.value, ast.Name) and func.value.id == "self":
                 return f"this->{self.name(func.attr)}({args})"
             return f"{self.expr(func.value)}.{self._member_name(func.value, func.attr)}({args})"

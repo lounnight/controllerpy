@@ -442,6 +442,12 @@ class Validator:
         )
 
     def _finalize_var(self, var: VarInfo) -> None:
+        if var.is_array and var.array_len == 0 and not var.append_count:
+            self._var_error(
+                var,
+                "Empty lists are not supported.",
+                hint="Give the array at least one element.",
+            )
         merged = var.final_type()
         if merged == CONFLICT_TYPE:
             self._var_error(

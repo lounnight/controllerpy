@@ -72,6 +72,8 @@ class CppGenerator:
             if self.declarations.is_object(var) != objects:
                 continue
             self.w.line(self.declarations.global_declaration(var))
+            if var.append_count:
+                self.w.line(f"{self.declarations.counter_declaration(var)};")
             emitted = True
         if emitted:
             self.w.blank()

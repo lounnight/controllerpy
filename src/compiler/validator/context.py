@@ -51,6 +51,7 @@ class CompileContext:
         self.warnings: List[str] = []
 
         self.expression_types: Dict[int, str] = {}
+        self.tracked_arrays: Dict[int, VarInfo] = {}
 
     def error(
         self,
@@ -79,6 +80,9 @@ class CompileContext:
             self._renames[name] = _cpp_name(name)
         
         return self._renames[name]
+
+    def count_name(self, name: str) -> str:
+        return f"{self.cpp_name(name)}_count"
 
     @staticmethod
     def is_reserved(name: str) -> bool:

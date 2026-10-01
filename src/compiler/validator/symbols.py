@@ -25,6 +25,7 @@ class VarInfo:
     is_global: bool = False
     is_array: bool = False
     array_len: Optional[int] = None
+    append_count: int = 0
     is_object: bool = False
     is_external: bool = False
     declare_node: Optional[ast.AST] = None

@@ -380,6 +380,10 @@ class BodyAnalyzer(ast.NodeVisitor):
     def visit_Expr(self, node: ast.Expr) -> None:
         if is_docstring(node):
             return
+        call = node.value
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "append":
+            self._append_call_type(call, call.func.value, [self._type(arg) for arg in call.args])
+            return
         self._type(node.value)
 
     def visit_If(self, node: ast.If) -> None:
@@ -781,6 +785,13 @@ class BodyAnalyzer(ast.NodeVisitor):
             return method.return_type or UNKNOWN_TYPE
         if isinstance(base, ast.Name) and base.id in ARDUINO_OBJECTS:
             return UNKNOWN_TYPE  # Serial.begin(...) / Wire.begin() pass through
+        if attr == "append":
+            self.ctx.error(
+                node,
+                "append() has to be used as a statement.",
+                hint="readings.append(Reading())",
+            )
+            return UNKNOWN_TYPE
         base_type = self._type(base)
         if base_type in ARDUINO_OBJECTS:
             return UNKNOWN_TYPE
@@ -818,12 +829,35 @@ class BodyAnalyzer(ast.NodeVisitor):
             if not types_compatible(declared, inferred):
                 self.ctx.error(node.args[index - 1], f"Argument {index} of {label}() must be {declared}, not {inferred}.")
 
+    def _append_call_type(self, node: ast.Call, base: ast.AST, arg_types: Sequence[str]) -> str:
+        if not isinstance(base, ast.Name):
+            self.ctx.error(node, "append() needs a list variable.", hint="values = [1, 2]  then  values.append(3)")
+            return UNKNOWN_TYPE
+        var = self.scope.lookup(base.id)
+        if var is None:
+            self.ctx.error(base, f"'{base.id}' is not defined.")
+            return UNKNOWN_TYPE
+        if not var.is_array:
+            self.ctx.error(node, f"'{base.id}' is not a list, so it cannot be appended to.")
+            return UNKNOWN_TYPE
+        self._check_arity(node, "append", len(node.args), 1, 1)
+        arg_type = arg_types[0]
+        element_type = self._variable_type(var)
+        if element_type not in (UNKNOWN_TYPE, CONFLICT_TYPE) and arg_type not in (UNKNOWN_TYPE, CONFLICT_TYPE):
+            if merge_types(element_type, arg_type) == CONFLICT_TYPE:
+                self.ctx.error(node.args[0], f"List '{base.id}' holds {element_type} values, not {arg_type}.")
+        var.record_type(arg_type)
+        var.append_count += 1
+        var.write_count += 1
+        return VOID_TYPE
+
     def _len_type(self, node: ast.Call) -> str:
         self._check_arity(node, "len", len(node.args), 1, 1)
         base = node.args[0]
         if isinstance(base, ast.Name):
             var = self.scope.lookup(base.id)
             if var is not None and var.is_array:
+                self.ctx.tracked_arrays[id(base)] = var
                 return "int"
         self.ctx.error(
             node,
@@ -939,10 +973,10 @@ class BodyAnalyzer(ast.NodeVisitor):
             self.ctx.error(node, "Both branches of a conditional expression must have the same type.")
         return merged or UNKNOWN_TYPE
 
-    def _literal_elements(self, node: ast.AST) -> Tuple[str, int]:
+    def _literal_elements(self, node: ast.AST) -> Tuple[Optional[str], int]:
         elements = list(getattr(node, "elts"))
         if not elements:
-            self.ctx.error(node, "Empty lists are not supported.", hint="Give the array at least one element.")
+            return None, 0
         element_type: Optional[str] = None
         for element in elements:
             if isinstance(element, (ast.List, ast.Tuple, ast.Dict, ast.Set)):

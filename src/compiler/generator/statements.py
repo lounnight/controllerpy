@@ -238,10 +238,14 @@ class StatementEmitter:
         if isinstance(target, ast.Name):
             local = self._local_info(target.id)
             if local is not None and local.declare_node is stmt:
-                if self.ctx.is_object_type(local.cpp_type) and isinstance(value, ast.Call):
+                if local.is_array and not local.array_len:
+                    self.w.line(f"{self.decl.declaration(local)};")
+                elif self.ctx.is_object_type(local.cpp_type) and isinstance(value, ast.Call):
                     self.w.line(f"{self.decl.object_declaration(local, value)};")
                 else:
                     self.w.line(f"{self.decl.declaration(local)} = {self.exprs.value(value)};")
+                if local.append_count:
+                    self.w.line(f"{self.decl.counter_declaration(local)};")
             else:
                 self.w.line(f"{self.decl.name(target.id)} = {self.exprs.value(value)};")
             return

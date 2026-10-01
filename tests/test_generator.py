@@ -1715,6 +1715,102 @@ def test_a_whole_struct_can_be_assigned_to_a_nested_struct_array_element(program
     assert "    samples[1] = samples[0];\n" in cpp
 
 
+def test_an_appended_struct_list_becomes_a_counted_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = []
+
+        def main():
+            readings.append(Reading())
+            readings.append(Reading())
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2];\n" in cpp
+    assert "int readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+    assert cpp.count("readings[readings_count++] = Reading();") == 2
+    assert "    int size = readings_count;\n" in cpp
+    assert cpp.index("struct Reading {") < cpp.index("Reading readings[2]")
+
+
+def test_a_local_appended_struct_list_becomes_a_counted_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = []
+            reading = Reading()
+            readings.append(reading)
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Reading readings[1];\n" in cpp
+    assert "    int readings_count = 0;\n" in cpp
+    assert "    readings[readings_count++] = reading;\n" in cpp
+    assert "    int size = readings_count;\n" in cpp
+
+
+def test_a_list_literal_and_an_append_size_the_array_for_both(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        readings = [Reading()]
+
+        def main():
+            readings.append(Reading())
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2] = {Reading()};\n" in cpp
+    assert "int readings_count = 1;\n" in cpp
+    assert "    readings[readings_count++] = Reading();\n" in cpp
+
+
+def test_a_struct_with_struct_fields_can_be_appended(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = []
+
+        def main():
+            samples.append(Sample())
+            samples.append(Sample())
+            size = len(samples)
+
+        def loop():
+            pass
+        """
+    )
+    assert "Sample samples[2];\n" in cpp
+    assert "int samples_count = 0;\n" in cpp
+    assert "    samples[samples_count++] = Sample();\n" in cpp
+    assert "    int size = samples_count;\n" in cpp
+    assert cpp.index("struct Reading {") < cpp.index("struct Sample {")
+    assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
+
+
 # ---------------------------------------------------------------- formatting
 def test_generated_code_is_consistently_formatted(program, result):
     cpp = program(

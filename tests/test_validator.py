@@ -1399,6 +1399,165 @@ def test_a_struct_assigned_to_a_scalar_array_element_is_rejected(error):
     )
 
 
+APPEND_SHELL = """
+class Reading:
+    value: int
+    bright: bool
+
+class Sample:
+    first: Reading
+
+readings = []
+"""
+
+
+def test_an_appended_struct_fills_an_empty_list(result):
+    compiled = result(APPEND_SHELL + "def main():\n    readings.append(Reading())\n\ndef loop():\n    pass\n")
+    readings = compiled.context.globals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.is_array is True
+    assert readings.array_len == 0
+    assert readings.append_count == 1
+
+
+def test_every_append_is_counted(result):
+    compiled = result(
+        APPEND_SHELL
+        + "def main():\n    readings.append(Reading())\n    readings.append(Reading())\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.globals["readings"].append_count == 2
+
+
+def test_a_struct_variable_can_be_appended(result):
+    compiled = result(
+        APPEND_SHELL + "def main():\n    reading = Reading()\n    readings.append(reading)\n\ndef loop():\n    pass\n"
+    )
+    readings = compiled.context.globals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert compiled.context.setup_info.locals["reading"].cpp_type == "Reading"
+
+
+def test_a_local_list_can_be_appended_to(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = []
+            readings.append(Reading())
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.setup_info.locals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.array_len == 0
+    assert readings.append_count == 1
+
+
+def test_a_struct_with_a_struct_field_can_be_appended(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            first: Reading
+
+        samples = []
+
+        def main():
+            samples.append(Sample())
+
+        def loop():
+            pass
+        """
+    )
+    assert compiled.context.globals["samples"].cpp_type == "Sample"
+
+
+def test_len_of_an_appended_list_is_an_int(result):
+    compiled = result(
+        APPEND_SHELL
+        + "def main():\n    readings.append(Reading())\n    size = len(readings)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["size"].cpp_type == "int"
+
+
+def test_an_empty_list_without_an_append_is_rejected(error):
+    error(
+        "readings = []\n\ndef main():\n    pass\n\ndef loop():\n    pass\n",
+        message="Empty lists are not supported.",
+        hint="Give the array at least one element.",
+    )
+
+
+def test_a_primitive_appended_to_a_struct_list_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    readings.append(Reading())\n    readings.append(123)\n\ndef loop():\n    pass\n",
+        message="List 'readings' holds Reading values, not int.",
+    )
+
+
+def test_another_struct_appended_to_a_struct_list_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    readings.append(Reading())\n    readings.append(Sample())\n\ndef loop():\n    pass\n",
+        message="List 'readings' holds Reading values, not Sample.",
+    )
+
+
+def test_append_to_a_value_that_is_not_a_list_is_rejected(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            value = 1
+            value.append(Reading())
+
+        def loop():
+            pass
+        """,
+        message="'value' is not a list, so it cannot be appended to.",
+    )
+
+
+def test_append_without_a_value_is_rejected(error):
+    error(
+        APPEND_SHELL + "def main():\n    readings.append()\n\ndef loop():\n    pass\n",
+        message="append() takes exactly 1 argument but 0 were given.",
+    )
+
+
+def test_the_result_of_append_cannot_be_used(error):
+    error(
+        APPEND_SHELL + "def main():\n    size = readings.append(Reading())\n\ndef loop():\n    pass\n",
+        message="append() has to be used as a statement.",
+        hint="readings.append(Reading())",
+    )
+
+
+def test_a_list_declared_inside_a_block_cannot_be_appended_to(error):
+    error(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            if True:
+                readings = []
+            readings.append(Reading())
+
+        def loop():
+            pass
+        """,
+        message="Array 'readings' must get its values where it is declared.",
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(
