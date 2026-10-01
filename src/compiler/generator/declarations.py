@@ -52,7 +52,7 @@ class DeclarationEmitter:
         return ", ".join(parts)
 
     def global_declaration(self, var: VarInfo) -> str:
-        if self.is_object(var):
+        if self.is_object(var) and not var.is_array:
             if isinstance(var.value, ast.Call):
                 return f"{self.object_declaration(var, var.value)};"
             type_name = var.cpp_type if var.cpp_type != UNKNOWN_TYPE else "int"

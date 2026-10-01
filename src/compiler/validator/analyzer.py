@@ -942,8 +942,12 @@ class BodyAnalyzer(ast.NodeVisitor):
             if isinstance(element, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
                 self.ctx.error(element, "Nested lists are not supported on Arduino.", hint="Use separate arrays.")
             observed = self._type(element)
-            if self.ctx.is_object_type(observed):
-                self.ctx.error(element, "Lists of objects are not supported on Arduino.")
+            if self.ctx.is_object_type(observed) and not self.ctx.is_struct_type(observed):
+                self.ctx.error(
+                    element,
+                    "Lists of class objects are not supported on Arduino.",
+                    hint="Use a struct: a class with fields and no methods.",
+                )
             element_type = merge_types(element_type, observed)
             if element_type == CONFLICT_TYPE:
                 self.ctx.error(node, "All elements of a list must have the same type.")

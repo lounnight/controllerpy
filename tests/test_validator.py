@@ -1103,6 +1103,136 @@ def test_a_class_attribute_next_to_a_method_is_still_rejected(error):
     )
 
 
+def test_a_list_of_struct_objects_keeps_the_element_type(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.globals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.is_array is True
+    assert readings.array_len == 2
+    assert compiled.context.is_struct_type(readings.cpp_type)
+
+
+def test_a_local_list_of_struct_objects_keeps_the_element_type(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+
+        def loop():
+            pass
+        """
+    )
+    readings = compiled.context.setup_info.locals["readings"]
+    assert readings.cpp_type == "Reading"
+    assert readings.is_array is True
+    assert readings.array_len == 2
+
+
+def test_a_list_of_structs_with_nested_struct_fields_keeps_the_element_type(result):
+    compiled = result(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            label: str
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    samples = compiled.context.globals["samples"]
+    assert samples.cpp_type == "Sample"
+    assert samples.array_len == 2
+    assert compiled.context.classes["Sample"].fields["first"].cpp_type == "Reading"
+
+
+def test_a_list_of_class_objects_is_rejected(error):
+    error(
+        """
+        class Led:
+            def __init__(self, pin: int):
+                self.pin = pin
+
+        def main():
+            leds = [Led(13), Led(7)]
+
+        def loop():
+            pass
+        """,
+        message="Lists of class objects are not supported on Arduino.",
+        hint="Use a struct: a class with fields and no methods.",
+    )
+
+
+def test_a_list_of_library_objects_is_rejected(error):
+    error(
+        "from controllerpy import Servo\n\ndef main():\n    servos = [Servo(), Servo()]\n\ndef loop():\n    pass\n",
+        message="Lists of class objects are not supported on Arduino.",
+    )
+
+
+def test_a_list_of_two_different_struct_types_is_rejected(error):
+    error(
+        """
+        class Point:
+            x: int
+
+        class Waypoint:
+            point: Point
+
+        def main():
+            places = [Point(), Waypoint()]
+
+        def loop():
+            pass
+        """,
+        message="All elements of a list must have the same type.",
+    )
+
+
+def test_a_list_mixing_a_struct_and_an_int_is_rejected(error):
+    error(
+        """
+        class Point:
+            x: int
+
+        def main():
+            places = [Point(), 3]
+
+        def loop():
+            pass
+        """,
+        message="All elements of a list must have the same type.",
+    )
+
+
 # ---------------------------------------------------------------------- loops
 def test_range_without_arguments_is_rejected(error):
     error(

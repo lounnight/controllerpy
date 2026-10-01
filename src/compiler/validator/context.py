@@ -96,6 +96,10 @@ class CompileContext:
     def is_object_type(self, cpp_type: Optional[str]) -> bool:
         return bool(cpp_type) and (cpp_type in self.classes or self.is_library_type(cpp_type))
 
+    def is_struct_type(self, cpp_type: Optional[str]) -> bool:
+        cls = self.class_of(cpp_type)
+        return cls is not None and cls.is_struct
+
     def is_library_type(self, cpp_type: Optional[str]) -> bool:
         if not cpp_type:
             return False

@@ -1527,6 +1527,72 @@ def test_a_struct_field_named_after_a_cpp_keyword_is_renamed(program):
     assert "    flag.explicit_ = true;\n" in cpp
 
 
+def test_a_list_of_struct_objects_becomes_a_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+            bright: bool
+
+        readings = [
+            Reading(),
+            Reading(),
+        ]
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "Reading readings[2] = {Reading(), Reading()};" in cpp
+    assert "const Reading" not in cpp
+    assert cpp.index("struct Reading {") < cpp.index("Reading readings[2]")
+
+
+def test_a_local_list_of_struct_objects_becomes_a_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        def main():
+            readings = [Reading(), Reading()]
+            size = len(readings)
+
+        def loop():
+            pass
+        """
+    )
+    assert "    Reading readings[2] = {Reading(), Reading()};\n" in cpp
+    assert "    int size = (sizeof(readings) / sizeof(readings[0]));\n" in cpp
+
+
+def test_a_list_of_structs_with_nested_struct_fields_becomes_a_cpp_array(program):
+    cpp = program(
+        """
+        class Reading:
+            value: int
+
+        class Sample:
+            label: str
+            first: Reading
+
+        samples = [Sample(), Sample()]
+
+        def main():
+            pass
+
+        def loop():
+            pass
+        """
+    )
+    assert "Sample samples[2] = {Sample(), Sample()};" in cpp
+    assert cpp.index("struct Reading {") < cpp.index("struct Sample {")
+    assert cpp.index("struct Sample {") < cpp.index("Sample samples[2]")
+
+
 # ---------------------------------------------------------------- formatting
 def test_generated_code_is_consistently_formatted(program, result):
     cpp = program(
