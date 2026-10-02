@@ -119,6 +119,7 @@ STRING_METHODS: Dict[str, ApiMethod] = {
     for method in (
         ApiMethod("replace", 2, 2, params=("String", "String")),
         ApiMethod("substring", 1, 2, params=("int", "int")),
+        ApiMethod("remove", 1, 2, params=("int", "int")),
     )
 }
 

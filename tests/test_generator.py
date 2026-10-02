@@ -761,6 +761,24 @@ def test_substring_of_computed_indexes_is_generated(program):
     assert "    text.substring(start, text.length());\n" in cpp
 
 
+def test_remove_becomes_the_arduino_string_method(program):
+    cpp = program("text = 'Hello World'\n\ndef main():\n    text.remove(5, 3)\n\ndef loop():\n    pass\n")
+    assert 'String text = "Hello World";' in cpp
+    assert "    text.remove(5, 3);\n" in cpp
+
+
+def test_remove_with_one_argument_is_generated(program):
+    cpp = program("def main():\n    text = 'Hello World'\n    text.remove(5)\n\ndef loop():\n    pass\n")
+    assert "    text.remove(5);\n" in cpp
+
+
+def test_remove_of_computed_indexes_is_generated(program):
+    cpp = program(
+        "def main():\n    text = 'Hello World'\n    size = len(text)\n    text.remove(0, size - 1)\n\ndef loop():\n    pass\n"
+    )
+    assert "    text.remove(0, size - 1);\n" in cpp
+
+
 def test_str_of_an_int_uses_the_arduino_string_class(program):
     cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
     assert "    String text = String(counter);\n" in cpp

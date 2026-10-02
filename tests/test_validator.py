@@ -2881,6 +2881,61 @@ def test_substring_used_as_a_value_is_rejected(error):
     )
 
 
+def test_remove_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result("text = 'Hello World'\n\ndef main():\n    text.remove(5, 3)\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_remove_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text = 'Hello'\n    text.remove(0)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_remove_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.remove(0)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_remove_without_an_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.remove()\n\ndef loop():\n    pass\n",
+        message="String.remove() takes 1 to 2 arguments but 0 were given.",
+    )
+
+
+def test_remove_with_three_arguments_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.remove(0, 1, 2)\n\ndef loop():\n    pass\n",
+        message="String.remove() takes 1 to 2 arguments but 3 were given.",
+    )
+
+
+def test_remove_of_a_string_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.remove('a')\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.remove() must be int, not const char*.",
+    )
+
+
+def test_remove_of_a_float_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.remove(1.5, 1)\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.remove() must be int, not float.",
+    )
+
+
+def test_remove_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    left = text.remove(0, 1)\n\ndef loop():\n    pass\n",
+        message="remove() has to be used as a statement.",
+        hint="String.remove() changes the string in place.",
+    )
+
+
 # ---------------------------------------------------------------- annotations
 def test_unknown_annotation_is_rejected(error):
     error(
