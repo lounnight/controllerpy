@@ -686,6 +686,160 @@ def test_string_annotation_uses_the_arduino_string_class(program):
     assert 'String label = "hi";' in cpp
 
 
+def test_len_of_a_string_becomes_the_arduino_length_call(program):
+    cpp = program("def main():\n    text: str = 'hi'\n    size = len(text)\n\ndef loop():\n    pass\n")
+    assert "int size = text.length();" in cpp
+
+
+def test_len_of_a_mutated_string_becomes_the_arduino_length_call(program):
+    cpp = program("text = 'hi'\n\ndef main():\n    text += '!'\n    size = len(text)\n\ndef loop():\n    pass\n")
+    assert 'String text = "hi";' in cpp
+    assert "int size = text.length();" in cpp
+
+
+def test_len_of_a_fixed_string_turns_it_into_an_arduino_string(program):
+    cpp = program("text = 'hi'\n\ndef main():\n    size = len(text)\n\ndef loop():\n    pass\n")
+    assert 'const String text = "hi";' in cpp
+    assert "int size = text.length();" in cpp
+
+
+def test_len_of_a_string_is_generated_inside_runtime_control_flow(program):
+    cpp = program("text = 'hi'\n\ndef main():\n    while len(text) > 2:\n        text += '!'\n\ndef loop():\n    pass\n")
+    assert "while (text.length() > 2) {" in cpp
+
+
+def test_len_of_a_list_is_still_the_array_size(program):
+    cpp = program("values = [1, 2, 3]\n\ndef main():\n    size = len(values)\n\ndef loop():\n    pass\n")
+    assert "int size = (sizeof(values) / sizeof(values[0]));" in cpp
+
+
+def test_replace_becomes_the_arduino_string_method(program):
+    cpp = program(
+        "text = 'Hello World'\n\ndef main():\n    text.replace('World', 'ControllerPy')\n\ndef loop():\n    pass\n"
+    )
+    assert 'String text = "Hello World";' in cpp
+    assert '    text.replace("World", "ControllerPy");\n' in cpp
+
+
+def test_replace_of_a_local_string_is_generated(program):
+    cpp = program("def main():\n    text: str = 'Hello'\n    text.replace('a', 'b')\n\ndef loop():\n    pass\n")
+    assert "    String text = \"Hello\";\n" in cpp
+    assert '    text.replace("a", "b");\n' in cpp
+
+
+def test_replace_with_a_string_variable_is_generated(program):
+    cpp = program(
+        "old = 'World'\n\ndef main():\n    text = 'Hello World'\n    text.replace(old, 'Py')\n\ndef loop():\n    pass\n"
+    )
+    assert '    text.replace(old, "Py");\n' in cpp
+
+
+def test_replace_is_generated_inside_runtime_control_flow(program):
+    cpp = program(
+        "text = 'Hello'\n\ndef main():\n    while 1 < 0:\n        text.replace('a', 'b')\n\ndef loop():\n    pass\n"
+    )
+    assert '        text.replace("a", "b");\n' in cpp
+
+
+def test_substring_becomes_the_arduino_string_method(program):
+    cpp = program(
+        "text = 'Hello World'\n\ndef main():\n    text.substring(0, 5)\n\ndef loop():\n    pass\n"
+    )
+    assert 'const String text = "Hello World";' in cpp
+    assert "    text.substring(0, 5);\n" in cpp
+
+
+def test_substring_of_one_index_used_as_a_value_becomes_a_string_assignment(program):
+    cpp = program("def main():\n    line = 'Hello World'\n    tail = line.substring(5)\n\ndef loop():\n    pass\n")
+    assert "    String tail = line.substring(5);\n" in cpp
+
+
+def test_substring_of_two_indexes_used_as_a_value_becomes_a_string_assignment(program):
+    cpp = program("def main():\n    line = 'Hello World'\n    head = line.substring(0, 5)\n\ndef loop():\n    pass\n")
+    assert "    String head = line.substring(0, 5);\n" in cpp
+
+
+def test_substring_results_from_one_string_are_both_assigned(program):
+    cpp = program(
+        "def main():\n    line = 'Hello World'\n    tail = line.substring(6)\n    head = line.substring(0, 5)\n\ndef loop():\n    pass\n"
+    )
+    assert "    String tail = line.substring(6);\n" in cpp
+    assert "    String head = line.substring(0, 5);\n" in cpp
+
+
+def test_substring_with_one_argument_is_generated(program):
+    cpp = program("def main():\n    text = 'Hello World'\n    text.substring(6)\n\ndef loop():\n    pass\n")
+    assert "    text.substring(6);\n" in cpp
+
+
+def test_substring_of_computed_indexes_is_generated(program):
+    cpp = program(
+        "def main():\n    text = 'Hello World'\n    start = 2\n    text.substring(start, len(text))\n\ndef loop():\n    pass\n"
+    )
+    assert "    text.substring(start, text.length());\n" in cpp
+
+
+def test_remove_becomes_the_arduino_string_method(program):
+    cpp = program("text = 'Hello World'\n\ndef main():\n    text.remove(5, 3)\n\ndef loop():\n    pass\n")
+    assert 'String text = "Hello World";' in cpp
+    assert "    text.remove(5, 3);\n" in cpp
+
+
+def test_remove_with_one_argument_is_generated(program):
+    cpp = program("def main():\n    text = 'Hello World'\n    text.remove(5)\n\ndef loop():\n    pass\n")
+    assert "    text.remove(5);\n" in cpp
+
+
+def test_remove_of_computed_indexes_is_generated(program):
+    cpp = program(
+        "def main():\n    text = 'Hello World'\n    size = len(text)\n    text.remove(0, size - 1)\n\ndef loop():\n    pass\n"
+    )
+    assert "    text.remove(0, size - 1);\n" in cpp
+
+
+def test_clear_becomes_the_arduino_remove_call(program):
+    cpp = program("text = 'Hello'\n\ndef main():\n    text.clear()\n\ndef loop():\n    pass\n")
+    assert 'String text = "Hello";' in cpp
+    assert "    text.remove(0);\n" in cpp
+
+
+def test_clear_can_be_followed_by_more_text(program):
+    cpp = program("def main():\n    text = 'Hello'\n    text.clear()\n    text += 'World'\n\ndef loop():\n    pass\n")
+    assert "    text.remove(0);\n" in cpp
+    assert '    text += "World";\n' in cpp
+
+
+def test_clearing_a_string_leaves_a_list_clear_alone(program):
+    cpp = program("values = [1, 2]\n\ndef main():\n    text = 'Hello'\n    text.clear()\n    values.clear()\n\ndef loop():\n    pass\n")
+    assert "    text.remove(0);\n" in cpp
+    assert "    values_count = 0;\n" in cpp
+
+
+def test_insert_becomes_the_arduino_string_method(program):
+    cpp = program("text = 'Hello'\n\ndef main():\n    text.insert(0, ', ')\n\ndef loop():\n    pass\n")
+    assert 'String text = "Hello";' in cpp
+    assert '    text.insert(0, ", ");\n' in cpp
+
+
+def test_insert_of_a_local_string_is_generated(program):
+    cpp = program("def main():\n    text = 'Hello'\n    text.insert(5, '!')\n\ndef loop():\n    pass\n")
+    assert "    text.insert(5, \"!\");\n" in cpp
+
+
+def test_insert_of_a_computed_index_is_generated(program):
+    cpp = program("def main():\n    text = 'Hello'\n    at = 2\n    text.insert(at, '-')\n\ndef loop():\n    pass\n")
+    assert "    text.insert(at, \"-\");\n" in cpp
+
+
+def test_inserting_into_a_string_leaves_a_list_insert_alone(program):
+    cpp = program(
+        "values = [1, 2]\n\ndef main():\n    text = 'Hello'\n    text.insert(0, '>')\n    values.insert(0, 9)\n\ndef loop():\n    pass\n"
+    )
+    assert "    text.insert(0, \">\");\n" in cpp
+    assert "    values[0] = 9;\n" in cpp
+    assert "    values_count++;\n" in cpp
+
+
 def test_str_of_an_int_uses_the_arduino_string_class(program):
     cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
     assert "    String text = String(counter);\n" in cpp

@@ -20,7 +20,14 @@ import ast
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from ...errors import ControllerPyError
-from .api import API_FUNCTIONS, ARDUINO_CONSTANTS, ARDUINO_OBJECTS, BUILTIN_FUNCTIONS, PYTHON_BUILTIN_HINTS
+from .api import (
+    API_FUNCTIONS,
+    ARDUINO_CONSTANTS,
+    ARDUINO_OBJECTS,
+    BUILTIN_FUNCTIONS,
+    PYTHON_BUILTIN_HINTS,
+    STRING_METHODS,
+)
 from .ast_utils import augassign_label, constant_int, is_docstring, iter_statements, target_names, unsupported_label
 from .context import CompileContext
 from .naming import check_reserved_variable
@@ -396,6 +403,12 @@ class BodyAnalyzer(ast.NodeVisitor):
             return
         call = node.value
         if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute):
+            string_var = self._string_receiver(call.func.value)
+            if string_var is not None:
+                self._string_method_type(
+                    call, call.func.attr, string_var, [self._type(arg) for arg in call.args]
+                )
+                return
             if call.func.attr == "append":
                 self._append_call_type(call, call.func.value, [self._type(arg) for arg in call.args])
                 return
@@ -810,6 +823,9 @@ class BodyAnalyzer(ast.NodeVisitor):
             return method.return_type or UNKNOWN_TYPE
         if isinstance(base, ast.Name) and base.id in ARDUINO_OBJECTS:
             return UNKNOWN_TYPE  # Serial.begin(...) / Wire.begin() pass through
+        string_var = self._string_receiver(base)
+        if string_var is not None:
+            return self._string_method_type(node, attr, string_var, arg_types, as_statement=False)
         if attr == "append":
             self.ctx.error(
                 node,
@@ -864,6 +880,52 @@ class BodyAnalyzer(ast.NodeVisitor):
         self._check_arity(node, label, len(node.args), method.min_args, method.max_args)
         self._check_argument_types(node, label, method.params, arg_types)
         return method.returns
+
+    def _string_receiver(self, base: ast.AST) -> Optional[VarInfo]:
+        if not isinstance(base, ast.Name):
+            return None
+        var = self.scope.lookup(base.id)
+        if var is None or var.is_array:
+            return None
+        if self._type(base) in ("String", "const char*"):
+            return var
+
+        return None
+
+    def _string_method_type(
+        self,
+        node: ast.Call,
+        attr: str,
+        var: VarInfo,
+        arg_types: Sequence[str],
+        *,
+        as_statement: bool = True,
+    ) -> str:
+        method = STRING_METHODS.get(attr)
+        if method is None:
+            self.ctx.error(
+                node,
+                f"String has no method '{attr}'.",
+                hint="Supported String methods are:",
+                hint_lines=[f"{name}()" for name in sorted(STRING_METHODS)],
+            )
+            return VOID_TYPE  # pragma: no cover - error() always raises
+        if not as_statement and method.returns == VOID_TYPE:
+            self.ctx.error(
+                node,
+                f"{attr}() has to be used as a statement.",
+                hint=f"String.{attr}() changes the string in place.",
+            )
+            return VOID_TYPE  # pragma: no cover - error() always raises
+        label = f"String.{attr}"
+        self._check_arity(node, label, len(node.args), method.min_args, method.max_args)
+        self._check_argument_types(node, label, method.params, arg_types)
+        if method.returns != VOID_TYPE:
+            var.record_type("String")
+            return method.returns
+        var.record_type("String")
+        var.write_count += 1
+        return VOID_TYPE
 
     def _check_argument_types(self, node: ast.Call, label: str, params: Sequence[str], arg_types: Sequence[str]) -> None:
         for index, (declared, inferred) in enumerate(zip(params, arg_types), start=1):
@@ -1040,13 +1102,18 @@ class BodyAnalyzer(ast.NodeVisitor):
         base = node.args[0]
         if isinstance(base, ast.Name):
             var = self.scope.lookup(base.id)
-            if var is not None and var.is_array:
-                self.ctx.tracked_arrays[id(base)] = var
-                return "int"
+            if var is not None:
+                if var.is_array:
+                    self.ctx.tracked_arrays[id(base)] = var
+                    return "int"
+                if self._type(base) in ("String", "const char*"):
+                    var.record_type("String")
+                    return "int"
         self.ctx.error(
             node,
             "len() is only supported for arrays created from a list literal.",
             hint="values = [1, 2, 3]  then  len(values)",
+            hint_lines=["text = 'Hello'  then  len(text)"],
         )
         return "int"  # pragma: no cover
 

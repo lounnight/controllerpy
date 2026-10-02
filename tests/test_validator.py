@@ -2704,6 +2704,364 @@ def test_str_bare_name_is_rejected(error):
     )
 
 
+def test_len_of_a_string_is_an_int(result):
+    compiled = result("text = 'Hello'\n\ndef main():\n    length = len(text)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["length"].cpp_type == "int"
+
+
+def test_len_of_a_mutated_string_is_an_int(result):
+    compiled = result(
+        "text = 'Hello'\n\ndef main():\n    text += '!'\n    length = len(text)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["length"].cpp_type == "int"
+
+
+def test_len_of_an_annotated_string_is_an_int(result):
+    compiled = result("def main():\n    text: str = 'Hello'\n    length = len(text)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["length"].cpp_type == "int"
+
+
+def test_len_of_a_converted_string_is_an_int(result):
+    compiled = result("text = str(7)\n\ndef main():\n    length = len(text)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["length"].cpp_type == "int"
+
+
+def test_len_of_a_string_turns_a_fixed_string_into_an_arduino_string(result):
+    compiled = result("text = 'Hello'\n\ndef main():\n    length = len(text)\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["text"].cpp_type == "String"
+
+
+def test_len_of_a_list_is_still_an_int(result):
+    compiled = result("values = [1, 2, 3]\n\ndef main():\n    size = len(values)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["size"].cpp_type == "int"
+
+
+def test_len_without_an_argument_is_rejected(error):
+    error(
+        "def main():\n    size = len()\n\ndef loop():\n    pass\n",
+        message="len() takes exactly 1 argument but 0 were given.",
+    )
+
+
+def test_len_of_a_string_expression_is_rejected(error):
+    error(
+        "def main():\n    text: str = 'Hello'\n    size = len(text + '!')\n\ndef loop():\n    pass\n",
+        message="len() is only supported for arrays created from a list literal.",
+        hint="len(text)",
+    )
+
+
+def test_replace_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result("text = 'Hello World'\n\ndef main():\n    text.replace('World', 'Py')\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_replace_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text: str = 'Hello'\n    text.replace('a', 'b')\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_replace_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.replace('a', 'b')\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_replace_of_a_struct_field_is_rejected(error):
+    error(
+        """
+        class Box:
+            label: str
+
+        def main():
+            box = Box()
+            box.label.replace('a', 'b')
+
+        def loop():
+            pass
+        """,
+        message="Cannot call method 'replace' on this value.",
+    )
+
+
+def test_replace_with_one_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.replace('World')\n\ndef loop():\n    pass\n",
+        message="String.replace() takes exactly 2 arguments but 1 was given.",
+    )
+
+
+def test_replace_with_three_arguments_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.replace('a', 'b', 'c')\n\ndef loop():\n    pass\n",
+        message="String.replace() takes exactly 2 arguments but 3 were given.",
+    )
+
+
+def test_replace_of_a_number_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.replace(1, 2)\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.replace() must be String, not int.",
+    )
+
+
+def test_replace_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    other = text.replace('a', 'b')\n\ndef loop():\n    pass\n",
+        message="replace() has to be used as a statement.",
+        hint="String.replace() changes the string in place.",
+    )
+
+
+def test_an_unknown_string_method_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.upppercase()\n\ndef loop():\n    pass\n",
+        message="String has no method 'upppercase'.",
+        hint="replace()",
+    )
+
+
+def test_substring_turns_a_fixed_string_into_an_arduino_string_without_mutating_it(result):
+    compiled = result(
+        "text = 'Hello World'\n\ndef main():\n    text.substring(0, 5)\n\ndef loop():\n    pass\n"
+    )
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is True
+
+
+def test_substring_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text = 'Hello'\n    text.substring(1)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_substring_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.substring(0, 2)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_substring_without_an_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.substring()\n\ndef loop():\n    pass\n",
+        message="String.substring() takes 1 to 2 arguments but 0 were given.",
+    )
+
+
+def test_substring_with_three_arguments_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.substring(0, 1, 2)\n\ndef loop():\n    pass\n",
+        message="String.substring() takes 1 to 2 arguments but 3 were given.",
+    )
+
+
+def test_substring_of_a_string_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.substring('a', 2)\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.substring() must be int, not const char*.",
+    )
+
+
+def test_substring_of_a_float_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.substring(0, 1.5)\n\ndef loop():\n    pass\n",
+        message="Argument 2 of String.substring() must be int, not float.",
+    )
+
+
+def test_substring_of_one_index_used_as_a_value_is_the_string_type(result):
+    compiled = result("def main():\n    text = 'Hello World'\n    tail = text.substring(5)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["tail"].cpp_type == "String"
+
+
+def test_substring_of_two_indexes_used_as_a_value_is_the_string_type(result):
+    compiled = result("def main():\n    text = 'Hello World'\n    head = text.substring(0, 5)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["head"].cpp_type == "String"
+
+
+def test_substring_used_as_a_value_does_not_mutate_the_receiver(result):
+    compiled = result("def main():\n    text = 'Hello World'\n    part = text.substring(0, 2)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["part"].cpp_type == "String"
+    receiver = compiled.context.setup_info.locals["text"]
+    assert receiver.is_const is False
+    assert receiver.write_count == 1
+
+
+def test_substring_of_a_fixed_global_keeps_the_global_unchanged(result):
+    compiled = result("text = 'Hello World'\n\ndef main():\n    head = text.substring(0, 5)\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is True
+    assert var.write_count == 1
+
+
+def test_two_substring_results_can_come_from_one_string(result):
+    compiled = result(
+        "def main():\n    line = 'Hello World'\n    tail = line.substring(6)\n    head = line.substring(0, 5)\n\ndef loop():\n    pass\n"
+    )
+    locals_ = compiled.context.setup_info.locals
+    assert locals_["tail"].cpp_type == "String"
+    assert locals_["head"].cpp_type == "String"
+
+
+def test_remove_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result("text = 'Hello World'\n\ndef main():\n    text.remove(5, 3)\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_remove_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text = 'Hello'\n    text.remove(0)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_remove_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.remove(0)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_remove_without_an_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.remove()\n\ndef loop():\n    pass\n",
+        message="String.remove() takes 1 to 2 arguments but 0 were given.",
+    )
+
+
+def test_remove_with_three_arguments_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.remove(0, 1, 2)\n\ndef loop():\n    pass\n",
+        message="String.remove() takes 1 to 2 arguments but 3 were given.",
+    )
+
+
+def test_remove_of_a_string_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.remove('a')\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.remove() must be int, not const char*.",
+    )
+
+
+def test_remove_of_a_float_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.remove(1.5, 1)\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.remove() must be int, not float.",
+    )
+
+
+def test_remove_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    left = text.remove(0, 1)\n\ndef loop():\n    pass\n",
+        message="remove() has to be used as a statement.",
+        hint="String.remove() changes the string in place.",
+    )
+
+
+def test_clear_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result("text = 'Hello'\n\ndef main():\n    text.clear()\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_clear_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text = 'Hello'\n    text.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_clear_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.clear()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_clear_with_an_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.clear(1)\n\ndef loop():\n    pass\n",
+        message="String.clear() takes exactly 0 arguments but 1 was given.",
+    )
+
+
+def test_clearing_a_string_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    empty = text.clear()\n\ndef loop():\n    pass\n",
+        message="clear() has to be used as a statement.",
+        hint="String.clear() changes the string in place.",
+    )
+
+
+def test_a_string_clear_does_not_disturb_a_list_clear(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    text.clear()\n    values = [1, 2]\n    values.clear()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+    assert compiled.context.setup_info.locals["values"].is_array is True
+
+
+def test_insert_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result("text = 'Hello'\n\ndef main():\n    text.insert(0, ', ')\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_insert_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text = 'Hello'\n    text.insert(5, '!')\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_insert_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.insert(0, '>')\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_insert_with_one_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.insert(0)\n\ndef loop():\n    pass\n",
+        message="String.insert() takes exactly 2 arguments but 1 was given.",
+    )
+
+
+def test_insert_of_a_string_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.insert('a', 'b')\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.insert() must be int, not const char*.",
+    )
+
+
+def test_insert_of_a_number_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.insert(0, 7)\n\ndef loop():\n    pass\n",
+        message="Argument 2 of String.insert() must be String, not int.",
+    )
+
+
+def test_insert_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    other = text.insert(0, 'a')\n\ndef loop():\n    pass\n",
+        message="insert() has to be used as a statement.",
+        hint="String.insert() changes the string in place.",
+    )
+
+
+def test_a_string_insert_does_not_disturb_a_list_insert(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    text.insert(0, '>')\n    values = [1, 2]\n    values.insert(0, 9)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+    assert compiled.context.setup_info.locals["values"].is_array is True
+
+
+
 # ---------------------------------------------------------------- annotations
 def test_unknown_annotation_is_rejected(error):
     error(
