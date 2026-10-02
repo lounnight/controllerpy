@@ -112,13 +112,14 @@ API_FUNCTIONS: Dict[str, ApiFunction] = {
     )
 }
 
-#: The Arduino ``String`` methods controllerpy exposes.  They all change the
-#: string in place, so they are used as statements.
+#: The Arduino ``String`` methods controllerpy exposes.  ``substring`` returns a
+#: new string and leaves the receiver alone; the rest change the string in place
+#: and are used as statements.
 STRING_METHODS: Dict[str, ApiMethod] = {
     method.py_name: method
     for method in (
         ApiMethod("replace", 2, 2, params=("String", "String")),
-        ApiMethod("substring", 1, 2, params=("int", "int")),
+        ApiMethod("substring", 1, 2, returns="String", params=("int", "int")),
         ApiMethod("remove", 1, 2, params=("int", "int")),
         ApiMethod("insert", 2, 2, params=("int", "String")),
         ApiMethod("clear", 0, 0, cpp_name="remove"),

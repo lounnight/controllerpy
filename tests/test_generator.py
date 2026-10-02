@@ -745,8 +745,26 @@ def test_substring_becomes_the_arduino_string_method(program):
     cpp = program(
         "text = 'Hello World'\n\ndef main():\n    text.substring(0, 5)\n\ndef loop():\n    pass\n"
     )
-    assert 'String text = "Hello World";' in cpp
+    assert 'const String text = "Hello World";' in cpp
     assert "    text.substring(0, 5);\n" in cpp
+
+
+def test_substring_of_one_index_used_as_a_value_becomes_a_string_assignment(program):
+    cpp = program("def main():\n    line = 'Hello World'\n    tail = line.substring(5)\n\ndef loop():\n    pass\n")
+    assert "    String tail = line.substring(5);\n" in cpp
+
+
+def test_substring_of_two_indexes_used_as_a_value_becomes_a_string_assignment(program):
+    cpp = program("def main():\n    line = 'Hello World'\n    head = line.substring(0, 5)\n\ndef loop():\n    pass\n")
+    assert "    String head = line.substring(0, 5);\n" in cpp
+
+
+def test_substring_results_from_one_string_are_both_assigned(program):
+    cpp = program(
+        "def main():\n    line = 'Hello World'\n    tail = line.substring(6)\n    head = line.substring(0, 5)\n\ndef loop():\n    pass\n"
+    )
+    assert "    String tail = line.substring(6);\n" in cpp
+    assert "    String head = line.substring(0, 5);\n" in cpp
 
 
 def test_substring_with_one_argument_is_generated(program):

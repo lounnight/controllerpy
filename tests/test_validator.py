@@ -2824,13 +2824,13 @@ def test_an_unknown_string_method_is_rejected(error):
     )
 
 
-def test_substring_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+def test_substring_turns_a_fixed_string_into_an_arduino_string_without_mutating_it(result):
     compiled = result(
         "text = 'Hello World'\n\ndef main():\n    text.substring(0, 5)\n\ndef loop():\n    pass\n"
     )
     var = compiled.context.globals["text"]
     assert var.cpp_type == "String"
-    assert var.is_const is False
+    assert var.is_const is True
 
 
 def test_substring_of_a_local_string_is_accepted(result):
@@ -2873,12 +2873,39 @@ def test_substring_of_a_float_index_is_rejected(error):
     )
 
 
-def test_substring_used_as_a_value_is_rejected(error):
-    error(
-        "def main():\n    text = 'Hello'\n    part = text.substring(0, 2)\n\ndef loop():\n    pass\n",
-        message="substring() has to be used as a statement.",
-        hint="String.substring() changes the string in place.",
+def test_substring_of_one_index_used_as_a_value_is_the_string_type(result):
+    compiled = result("def main():\n    text = 'Hello World'\n    tail = text.substring(5)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["tail"].cpp_type == "String"
+
+
+def test_substring_of_two_indexes_used_as_a_value_is_the_string_type(result):
+    compiled = result("def main():\n    text = 'Hello World'\n    head = text.substring(0, 5)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["head"].cpp_type == "String"
+
+
+def test_substring_used_as_a_value_does_not_mutate_the_receiver(result):
+    compiled = result("def main():\n    text = 'Hello World'\n    part = text.substring(0, 2)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["part"].cpp_type == "String"
+    receiver = compiled.context.setup_info.locals["text"]
+    assert receiver.is_const is False
+    assert receiver.write_count == 1
+
+
+def test_substring_of_a_fixed_global_keeps_the_global_unchanged(result):
+    compiled = result("text = 'Hello World'\n\ndef main():\n    head = text.substring(0, 5)\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is True
+    assert var.write_count == 1
+
+
+def test_two_substring_results_can_come_from_one_string(result):
+    compiled = result(
+        "def main():\n    line = 'Hello World'\n    tail = line.substring(6)\n    head = line.substring(0, 5)\n\ndef loop():\n    pass\n"
     )
+    locals_ = compiled.context.setup_info.locals
+    assert locals_["tail"].cpp_type == "String"
+    assert locals_["head"].cpp_type == "String"
 
 
 def test_remove_turns_a_fixed_string_into_a_mutable_arduino_string(result):

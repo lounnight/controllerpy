@@ -825,8 +825,7 @@ class BodyAnalyzer(ast.NodeVisitor):
             return UNKNOWN_TYPE  # Serial.begin(...) / Wire.begin() pass through
         string_var = self._string_receiver(base)
         if string_var is not None:
-            self._string_method_type(node, attr, string_var, arg_types, as_statement=False)
-            return VOID_TYPE
+            return self._string_method_type(node, attr, string_var, arg_types, as_statement=False)
         if attr == "append":
             self.ctx.error(
                 node,
@@ -911,7 +910,7 @@ class BodyAnalyzer(ast.NodeVisitor):
                 hint_lines=[f"{name}()" for name in sorted(STRING_METHODS)],
             )
             return VOID_TYPE  # pragma: no cover - error() always raises
-        if not as_statement:
+        if not as_statement and method.returns == VOID_TYPE:
             self.ctx.error(
                 node,
                 f"{attr}() has to be used as a statement.",
@@ -921,6 +920,9 @@ class BodyAnalyzer(ast.NodeVisitor):
         label = f"String.{attr}"
         self._check_arity(node, label, len(node.args), method.min_args, method.max_args)
         self._check_argument_types(node, label, method.params, arg_types)
+        if method.returns != VOID_TYPE:
+            var.record_type("String")
+            return method.returns
         var.record_type("String")
         var.write_count += 1
         return VOID_TYPE
