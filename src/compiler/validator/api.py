@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Optional
-from .libraries import CORE_OBJECTS
+from .libraries import CORE_OBJECTS, ApiMethod
 
 __all__ = [
     "ApiFunction",
@@ -19,6 +19,7 @@ __all__ = [
     "ARDUINO_OBJECTS",
     "BUILTIN_FUNCTIONS",
     "PYTHON_BUILTIN_HINTS",
+    "STRING_METHODS",
 ]
 
 
@@ -108,6 +109,15 @@ API_FUNCTIONS: Dict[str, ApiFunction] = {
         _api("serial_println", "println", 0, 2, receiver="Serial"),
         _api("serial_available", "available", 0, 0, "int", receiver="Serial"),
         _api("serial_read", "read", 0, 0, "int", receiver="Serial"),
+    )
+}
+
+#: The Arduino ``String`` methods controllerpy exposes.  They all change the
+#: string in place, so they are used as statements.
+STRING_METHODS: Dict[str, ApiMethod] = {
+    method.py_name: method
+    for method in (
+        ApiMethod("replace", 2, 2, params=("String", "String")),
     )
 }
 

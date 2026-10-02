@@ -713,6 +713,34 @@ def test_len_of_a_list_is_still_the_array_size(program):
     assert "int size = (sizeof(values) / sizeof(values[0]));" in cpp
 
 
+def test_replace_becomes_the_arduino_string_method(program):
+    cpp = program(
+        "text = 'Hello World'\n\ndef main():\n    text.replace('World', 'ControllerPy')\n\ndef loop():\n    pass\n"
+    )
+    assert 'String text = "Hello World";' in cpp
+    assert '    text.replace("World", "ControllerPy");\n' in cpp
+
+
+def test_replace_of_a_local_string_is_generated(program):
+    cpp = program("def main():\n    text: str = 'Hello'\n    text.replace('a', 'b')\n\ndef loop():\n    pass\n")
+    assert "    String text = \"Hello\";\n" in cpp
+    assert '    text.replace("a", "b");\n' in cpp
+
+
+def test_replace_with_a_string_variable_is_generated(program):
+    cpp = program(
+        "old = 'World'\n\ndef main():\n    text = 'Hello World'\n    text.replace(old, 'Py')\n\ndef loop():\n    pass\n"
+    )
+    assert '    text.replace(old, "Py");\n' in cpp
+
+
+def test_replace_is_generated_inside_runtime_control_flow(program):
+    cpp = program(
+        "text = 'Hello'\n\ndef main():\n    while 1 < 0:\n        text.replace('a', 'b')\n\ndef loop():\n    pass\n"
+    )
+    assert '        text.replace("a", "b");\n' in cpp
+
+
 def test_str_of_an_int_uses_the_arduino_string_class(program):
     cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
     assert "    String text = String(counter);\n" in cpp

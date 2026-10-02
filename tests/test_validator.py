@@ -2751,6 +2751,79 @@ def test_len_of_a_string_expression_is_rejected(error):
     )
 
 
+def test_replace_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result("text = 'Hello World'\n\ndef main():\n    text.replace('World', 'Py')\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_replace_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text: str = 'Hello'\n    text.replace('a', 'b')\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_replace_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.replace('a', 'b')\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_replace_of_a_struct_field_is_rejected(error):
+    error(
+        """
+        class Box:
+            label: str
+
+        def main():
+            box = Box()
+            box.label.replace('a', 'b')
+
+        def loop():
+            pass
+        """,
+        message="Cannot call method 'replace' on this value.",
+    )
+
+
+def test_replace_with_one_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.replace('World')\n\ndef loop():\n    pass\n",
+        message="String.replace() takes exactly 2 arguments but 1 was given.",
+    )
+
+
+def test_replace_with_three_arguments_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.replace('a', 'b', 'c')\n\ndef loop():\n    pass\n",
+        message="String.replace() takes exactly 2 arguments but 3 were given.",
+    )
+
+
+def test_replace_of_a_number_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.replace(1, 2)\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.replace() must be String, not int.",
+    )
+
+
+def test_replace_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    other = text.replace('a', 'b')\n\ndef loop():\n    pass\n",
+        message="replace() has to be used as a statement.",
+        hint="String.replace() changes the string in place.",
+    )
+
+
+def test_an_unknown_string_method_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.upppercase()\n\ndef loop():\n    pass\n",
+        message="String has no method 'upppercase'.",
+        hint="replace()",
+    )
+
+
 # ---------------------------------------------------------------- annotations
 def test_unknown_annotation_is_rejected(error):
     error(
