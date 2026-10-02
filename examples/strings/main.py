@@ -23,8 +23,8 @@ def loop():
 
     serial_println(line)
 
-    line.substring(len(line) - KEEP)
-    serial_println(line)
+    tail = line.substring(len(line) - KEEP)
+    serial_println(tail)
 
     line.clear()
     serial_println(len(line))

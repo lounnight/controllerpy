@@ -21,8 +21,8 @@ void loop() {
 
     Serial.println(line);
 
-    line.substring(line.length() - KEEP);
-    Serial.println(line);
+    String tail = line.substring(line.length() - KEEP);
+    Serial.println(tail);
 
     line.remove(0);
     Serial.println(line.length());
