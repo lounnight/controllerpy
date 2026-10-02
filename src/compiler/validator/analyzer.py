@@ -1040,13 +1040,18 @@ class BodyAnalyzer(ast.NodeVisitor):
         base = node.args[0]
         if isinstance(base, ast.Name):
             var = self.scope.lookup(base.id)
-            if var is not None and var.is_array:
-                self.ctx.tracked_arrays[id(base)] = var
-                return "int"
+            if var is not None:
+                if var.is_array:
+                    self.ctx.tracked_arrays[id(base)] = var
+                    return "int"
+                if self._type(base) in ("String", "const char*"):
+                    var.record_type("String")
+                    return "int"
         self.ctx.error(
             node,
             "len() is only supported for arrays created from a list literal.",
             hint="values = [1, 2, 3]  then  len(values)",
+            hint_lines=["text = 'Hello'  then  len(text)"],
         )
         return "int"  # pragma: no cover
 

@@ -2704,6 +2704,53 @@ def test_str_bare_name_is_rejected(error):
     )
 
 
+def test_len_of_a_string_is_an_int(result):
+    compiled = result("text = 'Hello'\n\ndef main():\n    length = len(text)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["length"].cpp_type == "int"
+
+
+def test_len_of_a_mutated_string_is_an_int(result):
+    compiled = result(
+        "text = 'Hello'\n\ndef main():\n    text += '!'\n    length = len(text)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["length"].cpp_type == "int"
+
+
+def test_len_of_an_annotated_string_is_an_int(result):
+    compiled = result("def main():\n    text: str = 'Hello'\n    length = len(text)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["length"].cpp_type == "int"
+
+
+def test_len_of_a_converted_string_is_an_int(result):
+    compiled = result("text = str(7)\n\ndef main():\n    length = len(text)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["length"].cpp_type == "int"
+
+
+def test_len_of_a_string_turns_a_fixed_string_into_an_arduino_string(result):
+    compiled = result("text = 'Hello'\n\ndef main():\n    length = len(text)\n\ndef loop():\n    pass\n")
+    assert compiled.context.globals["text"].cpp_type == "String"
+
+
+def test_len_of_a_list_is_still_an_int(result):
+    compiled = result("values = [1, 2, 3]\n\ndef main():\n    size = len(values)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["size"].cpp_type == "int"
+
+
+def test_len_without_an_argument_is_rejected(error):
+    error(
+        "def main():\n    size = len()\n\ndef loop():\n    pass\n",
+        message="len() takes exactly 1 argument but 0 were given.",
+    )
+
+
+def test_len_of_a_string_expression_is_rejected(error):
+    error(
+        "def main():\n    text: str = 'Hello'\n    size = len(text + '!')\n\ndef loop():\n    pass\n",
+        message="len() is only supported for arrays created from a list literal.",
+        hint="len(text)",
+    )
+
+
 # ---------------------------------------------------------------- annotations
 def test_unknown_annotation_is_rejected(error):
     error(

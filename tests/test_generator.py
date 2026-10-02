@@ -686,6 +686,33 @@ def test_string_annotation_uses_the_arduino_string_class(program):
     assert 'String label = "hi";' in cpp
 
 
+def test_len_of_a_string_becomes_the_arduino_length_call(program):
+    cpp = program("def main():\n    text: str = 'hi'\n    size = len(text)\n\ndef loop():\n    pass\n")
+    assert "int size = text.length();" in cpp
+
+
+def test_len_of_a_mutated_string_becomes_the_arduino_length_call(program):
+    cpp = program("text = 'hi'\n\ndef main():\n    text += '!'\n    size = len(text)\n\ndef loop():\n    pass\n")
+    assert 'String text = "hi";' in cpp
+    assert "int size = text.length();" in cpp
+
+
+def test_len_of_a_fixed_string_turns_it_into_an_arduino_string(program):
+    cpp = program("text = 'hi'\n\ndef main():\n    size = len(text)\n\ndef loop():\n    pass\n")
+    assert 'const String text = "hi";' in cpp
+    assert "int size = text.length();" in cpp
+
+
+def test_len_of_a_string_is_generated_inside_runtime_control_flow(program):
+    cpp = program("text = 'hi'\n\ndef main():\n    while len(text) > 2:\n        text += '!'\n\ndef loop():\n    pass\n")
+    assert "while (text.length() > 2) {" in cpp
+
+
+def test_len_of_a_list_is_still_the_array_size(program):
+    cpp = program("values = [1, 2, 3]\n\ndef main():\n    size = len(values)\n\ndef loop():\n    pass\n")
+    assert "int size = (sizeof(values) / sizeof(values[0]));" in cpp
+
+
 def test_str_of_an_int_uses_the_arduino_string_class(program):
     cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
     assert "    String text = String(counter);\n" in cpp

@@ -185,11 +185,13 @@ class ExpressionEmitter:
             if name == "len":
                 base = node.args[0]
                 if isinstance(base, ast.Name):
-                    array = self.name(base.id)
                     tracked = self.ctx.tracked_arrays.get(id(base))
                     if tracked is not None and tracked.has_count:
                         return self.ctx.count_name(base.id)
-                    return f"(sizeof({array}) / sizeof({array}[0]))"
+                    target = self.name(base.id)
+                    if self.type_of(base) in ("String", "const char*"):
+                        return f"{target}.length()"
+                    return f"(sizeof({target}) / sizeof({target}[0]))"
                 self.ctx.error(node, "Internal error: len() on an unsupported expression")
             if name == "str":
                 return self._str_call(node)
