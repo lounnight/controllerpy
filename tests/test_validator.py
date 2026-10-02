@@ -2555,11 +2555,19 @@ def test_integer_literal_too_large_is_rejected(error):
     )
 
 
-def test_augmented_assignment_on_a_string_is_rejected(error):
-    error(
-        "def main():\n    text = 'a'\n    text += 'b'\n\ndef loop():\n    pass\n",
-        message="Cannot use += on a string.",
+def test_augmented_assignment_on_a_string_is_allowed(program):
+    cpp = program(
+        """
+        def main():
+            text = 'a'
+            text += 'b'
+
+        def loop():
+            pass
+        """
     )
+    assert "String text = \"a\";" in cpp
+    assert "text += \"b\";" in cpp
 
 
 def test_unsupported_augmented_assignment_is_rejected(error):
