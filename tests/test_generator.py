@@ -797,6 +797,31 @@ def test_clearing_a_string_leaves_a_list_clear_alone(program):
     assert "    values_count = 0;\n" in cpp
 
 
+def test_insert_becomes_the_arduino_string_method(program):
+    cpp = program("text = 'Hello'\n\ndef main():\n    text.insert(0, ', ')\n\ndef loop():\n    pass\n")
+    assert 'String text = "Hello";' in cpp
+    assert '    text.insert(0, ", ");\n' in cpp
+
+
+def test_insert_of_a_local_string_is_generated(program):
+    cpp = program("def main():\n    text = 'Hello'\n    text.insert(5, '!')\n\ndef loop():\n    pass\n")
+    assert "    text.insert(5, \"!\");\n" in cpp
+
+
+def test_insert_of_a_computed_index_is_generated(program):
+    cpp = program("def main():\n    text = 'Hello'\n    at = 2\n    text.insert(at, '-')\n\ndef loop():\n    pass\n")
+    assert "    text.insert(at, \"-\");\n" in cpp
+
+
+def test_inserting_into_a_string_leaves_a_list_insert_alone(program):
+    cpp = program(
+        "values = [1, 2]\n\ndef main():\n    text = 'Hello'\n    text.insert(0, '>')\n    values.insert(0, 9)\n\ndef loop():\n    pass\n"
+    )
+    assert "    text.insert(0, \">\");\n" in cpp
+    assert "    values[0] = 9;\n" in cpp
+    assert "    values_count++;\n" in cpp
+
+
 def test_str_of_an_int_uses_the_arduino_string_class(program):
     cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
     assert "    String text = String(counter);\n" in cpp

@@ -2978,6 +2978,62 @@ def test_a_string_clear_does_not_disturb_a_list_clear(result):
     assert compiled.context.setup_info.locals["values"].is_array is True
 
 
+def test_insert_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result("text = 'Hello'\n\ndef main():\n    text.insert(0, ', ')\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_insert_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text = 'Hello'\n    text.insert(5, '!')\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_insert_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.insert(0, '>')\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_insert_with_one_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.insert(0)\n\ndef loop():\n    pass\n",
+        message="String.insert() takes exactly 2 arguments but 1 was given.",
+    )
+
+
+def test_insert_of_a_string_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.insert('a', 'b')\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.insert() must be int, not const char*.",
+    )
+
+
+def test_insert_of_a_number_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.insert(0, 7)\n\ndef loop():\n    pass\n",
+        message="Argument 2 of String.insert() must be String, not int.",
+    )
+
+
+def test_insert_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    other = text.insert(0, 'a')\n\ndef loop():\n    pass\n",
+        message="insert() has to be used as a statement.",
+        hint="String.insert() changes the string in place.",
+    )
+
+
+def test_a_string_insert_does_not_disturb_a_list_insert(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    text.insert(0, '>')\n    values = [1, 2]\n    values.insert(0, 9)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+    assert compiled.context.setup_info.locals["values"].is_array is True
+
+
 
 # ---------------------------------------------------------------- annotations
 def test_unknown_annotation_is_rejected(error):
