@@ -382,6 +382,10 @@ class BodyAnalyzer(ast.NodeVisitor):
             self.ctx.error(node, f"Unsupported augmented assignment: {type(node.op).__name__}")
         target_type = self._type(node.target)
         if target_type in ("const char*", "String"):
+            if isinstance(node.op, ast.Add):
+                self._type(node.value)
+                self._bind_target(node.target, node, types=("String",))
+                return
             self.ctx.error(node, f"Cannot use {label} on a string.")
             return
         self._type(node.value)
