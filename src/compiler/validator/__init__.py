@@ -27,6 +27,7 @@ from .api import (
     ARDUINO_OBJECTS,
     BUILTIN_FUNCTIONS,
     PYTHON_BUILTIN_HINTS,
+    STRING_METHODS,
     ApiFunction,
 )
 from .ast_utils import UNSUPPORTED_FEATURES
@@ -46,6 +47,7 @@ __all__ = [
     "DEFAULT_TYPE",
     "LIBRARIES",
     "PYTHON_BUILTIN_HINTS",
+    "STRING_METHODS",
     "UNSUPPORTED_FEATURES",
     "UNKNOWN_TYPE",
     "VOID_TYPE",

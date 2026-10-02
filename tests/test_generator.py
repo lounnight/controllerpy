@@ -779,6 +779,24 @@ def test_remove_of_computed_indexes_is_generated(program):
     assert "    text.remove(0, size - 1);\n" in cpp
 
 
+def test_clear_becomes_the_arduino_remove_call(program):
+    cpp = program("text = 'Hello'\n\ndef main():\n    text.clear()\n\ndef loop():\n    pass\n")
+    assert 'String text = "Hello";' in cpp
+    assert "    text.remove(0);\n" in cpp
+
+
+def test_clear_can_be_followed_by_more_text(program):
+    cpp = program("def main():\n    text = 'Hello'\n    text.clear()\n    text += 'World'\n\ndef loop():\n    pass\n")
+    assert "    text.remove(0);\n" in cpp
+    assert '    text += "World";\n' in cpp
+
+
+def test_clearing_a_string_leaves_a_list_clear_alone(program):
+    cpp = program("values = [1, 2]\n\ndef main():\n    text = 'Hello'\n    text.clear()\n    values.clear()\n\ndef loop():\n    pass\n")
+    assert "    text.remove(0);\n" in cpp
+    assert "    values_count = 0;\n" in cpp
+
+
 def test_str_of_an_int_uses_the_arduino_string_class(program):
     cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
     assert "    String text = String(counter);\n" in cpp

@@ -2936,6 +2936,49 @@ def test_remove_used_as_a_value_is_rejected(error):
     )
 
 
+def test_clear_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result("text = 'Hello'\n\ndef main():\n    text.clear()\n\ndef loop():\n    pass\n")
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_clear_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text = 'Hello'\n    text.clear()\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_clear_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.clear()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_clear_with_an_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.clear(1)\n\ndef loop():\n    pass\n",
+        message="String.clear() takes exactly 0 arguments but 1 was given.",
+    )
+
+
+def test_clearing_a_string_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    empty = text.clear()\n\ndef loop():\n    pass\n",
+        message="clear() has to be used as a statement.",
+        hint="String.clear() changes the string in place.",
+    )
+
+
+def test_a_string_clear_does_not_disturb_a_list_clear(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    text.clear()\n    values = [1, 2]\n    values.clear()\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+    assert compiled.context.setup_info.locals["values"].is_array is True
+
+
+
 # ---------------------------------------------------------------- annotations
 def test_unknown_annotation_is_rejected(error):
     error(

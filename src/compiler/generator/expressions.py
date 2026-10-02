@@ -16,7 +16,14 @@ from __future__ import annotations
 import ast
 from typing import List, Optional, Tuple
 
-from ..validator import ARDUINO_OBJECTS, API_FUNCTIONS, BUILTIN_FUNCTIONS, UNKNOWN_TYPE, CompileContext
+from ..validator import (
+    ARDUINO_OBJECTS,
+    API_FUNCTIONS,
+    BUILTIN_FUNCTIONS,
+    STRING_METHODS,
+    UNKNOWN_TYPE,
+    CompileContext,
+)
 from .formatting import cpp_string_literal
 from .operators import (
     BINOP_TOKENS,
@@ -43,6 +50,9 @@ class ExpressionEmitter:
 
     def type_of(self, node: ast.AST) -> str:
         return self.ctx.expression_types.get(id(node), UNKNOWN_TYPE)
+
+    def is_string_value(self, node: ast.AST) -> bool:
+        return self.type_of(node) in ("String", "const char*")
 
     # parentheses
     def _source_line(self, lineno: Optional[int]) -> str:
@@ -189,7 +199,7 @@ class ExpressionEmitter:
                     if tracked is not None and tracked.has_count:
                         return self.ctx.count_name(base.id)
                     target = self.name(base.id)
-                    if self.type_of(base) in ("String", "const char*"):
+                    if self.is_string_value(base):
                         return f"{target}.length()"
                     return f"(sizeof({target}) / sizeof({target}[0]))"
                 self.ctx.error(node, "Internal error: len() on an unsupported expression")
@@ -205,6 +215,8 @@ class ExpressionEmitter:
                 return f"{self.expr(func.value)}[{self.ctx.count_name(func.value.id)}++] = {args}"
             if func.attr == "pop" and isinstance(func.value, ast.Name):
                 return f"{self.expr(func.value)}[--{self.ctx.count_name(func.value.id)}]"
+            if func.attr == "clear" and self.is_string_value(func.value):
+                return f"{self.expr(func.value)}.{STRING_METHODS[func.attr].cpp_method}(0)"
             if isinstance(func.value, ast.Name) and func.value.id == "self":
                 return f"this->{self.name(func.attr)}({args})"
             return f"{self.expr(func.value)}.{self._member_name(func.value, func.attr)}({args})"

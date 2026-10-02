@@ -171,6 +171,7 @@ class StatementEmitter:
             isinstance(call, ast.Call)
             and isinstance(call.func, ast.Attribute)
             and isinstance(call.func.value, ast.Name)
+            and not self.exprs.is_string_value(call.func.value)
         ):
             base_name = call.func.value
             count = self.ctx.count_name(base_name.id)
