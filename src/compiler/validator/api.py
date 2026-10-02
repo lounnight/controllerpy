@@ -118,6 +118,7 @@ STRING_METHODS: Dict[str, ApiMethod] = {
     method.py_name: method
     for method in (
         ApiMethod("replace", 2, 2, params=("String", "String")),
+        ApiMethod("substring", 1, 2, params=("int", "int")),
     )
 }
 

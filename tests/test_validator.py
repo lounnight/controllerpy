@@ -2824,6 +2824,63 @@ def test_an_unknown_string_method_is_rejected(error):
     )
 
 
+def test_substring_turns_a_fixed_string_into_a_mutable_arduino_string(result):
+    compiled = result(
+        "text = 'Hello World'\n\ndef main():\n    text.substring(0, 5)\n\ndef loop():\n    pass\n"
+    )
+    var = compiled.context.globals["text"]
+    assert var.cpp_type == "String"
+    assert var.is_const is False
+
+
+def test_substring_of_a_local_string_is_accepted(result):
+    compiled = result("def main():\n    text = 'Hello'\n    text.substring(1)\n\ndef loop():\n    pass\n")
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_substring_is_allowed_inside_runtime_control_flow(result):
+    compiled = result(
+        "def main():\n    text = 'Hello'\n    while 1 < 0:\n        text.substring(0, 2)\n\ndef loop():\n    pass\n"
+    )
+    assert compiled.context.setup_info.locals["text"].cpp_type == "String"
+
+
+def test_substring_without_an_argument_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.substring()\n\ndef loop():\n    pass\n",
+        message="String.substring() takes 1 to 2 arguments but 0 were given.",
+    )
+
+
+def test_substring_with_three_arguments_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.substring(0, 1, 2)\n\ndef loop():\n    pass\n",
+        message="String.substring() takes 1 to 2 arguments but 3 were given.",
+    )
+
+
+def test_substring_of_a_string_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.substring('a', 2)\n\ndef loop():\n    pass\n",
+        message="Argument 1 of String.substring() must be int, not const char*.",
+    )
+
+
+def test_substring_of_a_float_index_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    text.substring(0, 1.5)\n\ndef loop():\n    pass\n",
+        message="Argument 2 of String.substring() must be int, not float.",
+    )
+
+
+def test_substring_used_as_a_value_is_rejected(error):
+    error(
+        "def main():\n    text = 'Hello'\n    part = text.substring(0, 2)\n\ndef loop():\n    pass\n",
+        message="substring() has to be used as a statement.",
+        hint="String.substring() changes the string in place.",
+    )
+
+
 # ---------------------------------------------------------------- annotations
 def test_unknown_annotation_is_rejected(error):
     error(

@@ -741,6 +741,26 @@ def test_replace_is_generated_inside_runtime_control_flow(program):
     assert '        text.replace("a", "b");\n' in cpp
 
 
+def test_substring_becomes_the_arduino_string_method(program):
+    cpp = program(
+        "text = 'Hello World'\n\ndef main():\n    text.substring(0, 5)\n\ndef loop():\n    pass\n"
+    )
+    assert 'String text = "Hello World";' in cpp
+    assert "    text.substring(0, 5);\n" in cpp
+
+
+def test_substring_with_one_argument_is_generated(program):
+    cpp = program("def main():\n    text = 'Hello World'\n    text.substring(6)\n\ndef loop():\n    pass\n")
+    assert "    text.substring(6);\n" in cpp
+
+
+def test_substring_of_computed_indexes_is_generated(program):
+    cpp = program(
+        "def main():\n    text = 'Hello World'\n    start = 2\n    text.substring(start, len(text))\n\ndef loop():\n    pass\n"
+    )
+    assert "    text.substring(start, text.length());\n" in cpp
+
+
 def test_str_of_an_int_uses_the_arduino_string_class(program):
     cpp = program("counter = 7\n\ndef main():\n    text = str(counter)\n\ndef loop():\n    pass\n")
     assert "    String text = String(counter);\n" in cpp
