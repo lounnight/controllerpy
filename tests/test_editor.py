@@ -728,6 +728,121 @@ def test_render_search_line_positions_cursor(tmp_path):
     assert frame.cursor_col == 2
 
 
+def test_editor_yank_line_and_put_below(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("one\ntwo\n"), disk_version=None)
+
+    editor.handle_key("y")
+    editor.handle_key("y")
+    assert editor.register == ["one"]
+    assert editor.register_linewise
+
+    editor.handle_key("p")
+    assert editor.buffer.text() == "one\none\ntwo\n"
+
+
+def test_editor_delete_line_then_put_restores_it(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("one\ntwo\nthree\n"), disk_version=None)
+
+    editor.handle_key("d")
+    editor.handle_key("d")
+    assert editor.buffer.text() == "two\nthree\n"
+
+    editor.handle_key("p")
+    assert editor.buffer.text() == "two\none\nthree\n"
+
+
+def test_editor_put_above_inserts_before_current_line(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("one\ntwo\n"), disk_version=None)
+
+    editor.handle_key("j")
+    editor.handle_key("y")
+    editor.handle_key("y")
+    editor.handle_key("P")
+
+    assert editor.buffer.text() == "one\ntwo\ntwo\n"
+
+
+def test_editor_put_with_empty_register_is_noop(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key("p")
+    editor.handle_key("P")
+
+    assert editor.buffer.text() == "abc\n"
+
+
+def test_editor_visual_yank_and_put(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abcdef\n"), disk_version=None)
+
+    editor.handle_key("v")
+    assert editor.mode == "visual"
+    editor.handle_key("l")
+    editor.handle_key("l")
+    editor.handle_key("y")
+
+    assert editor.mode == "normal"
+    assert editor.register == ["abc"]
+    assert not editor.register_linewise
+
+    editor.handle_key("$")
+    editor.handle_key("p")
+    assert editor.buffer.text() == "abcdefabc\n"
+
+
+def test_editor_visual_delete_range(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abcdef\n"), disk_version=None)
+
+    editor.handle_key("v")
+    editor.handle_key("l")
+    editor.handle_key("l")
+    editor.handle_key("d")
+
+    assert editor.mode == "normal"
+    assert editor.buffer.text() == "def\n"
+    assert (editor.row, editor.col) == (0, 0)
+    assert editor.register == ["abc"]
+
+
+def test_editor_visual_multiline_yank(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\ndef\nghi\n"), disk_version=None)
+    editor.handle_key("l")
+
+    editor.handle_key("v")
+    editor.handle_key("j")
+    editor.handle_key("y")
+
+    assert editor.register == ["bc", "de"]
+    assert not editor.register_linewise
+
+
+def test_editor_visual_escape_cancels(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abcdef\n"), disk_version=None)
+
+    editor.handle_key("v")
+    editor.handle_key("l")
+    editor.handle_key("escape")
+
+    assert editor.mode == "normal"
+    assert editor.buffer.text() == "abcdef\n"
+
+
+def test_render_status_shows_visual_mode(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key("v")
+
+    assert "VISUAL" in render(editor, 4, 60).lines[-1]
+
+
 def test_parse_key_reads_named_keys():
     assert parse_key(b"a") == ("a", 1)
     assert parse_key(b"\x13") == ("ctrl+s", 1)

@@ -18,6 +18,7 @@ SEQUENCE_TIMEOUT = 1.0
 MODE_COMMAND = "command"
 MODE_INSERT = "insert"
 MODE_NORMAL = "normal"
+MODE_VISUAL = "visual"
 
 
 class Screen(Protocol):
@@ -45,6 +46,9 @@ class Editor:
         self.command = ""
         self.prompt = ""
         self.search = ""
+        self.visual_anchor: Optional[Tuple[int, int]] = None
+        self.register: List[str] = []
+        self.register_linewise = False
         self.running = True
         self.discarded = False
         self.pending: Optional[str] = None
@@ -89,6 +93,11 @@ class Editor:
 
         if self.mode == MODE_INSERT:
             self._handle_insert(key)
+
+            return
+
+        if self.mode == MODE_VISUAL:
+            self._handle_visual(key)
 
             return
 
@@ -159,12 +168,41 @@ class Editor:
 
                 return
 
-        if key in ("g", "d"):
+        if key in ("g", "d", "y"):
             self.sequence = key
             self.sequence_at = time.monotonic()
         elif key == "i":
             self.mode = MODE_INSERT
-        elif key in ("h", "left"):
+        elif key == "v":
+            self.mode = MODE_VISUAL
+            self.visual_anchor = (self.row, self.col)
+        elif key == ":":
+            self.mode = MODE_COMMAND
+            self.prompt = ":"
+            self.command = ""
+        elif key == "/":
+            self.mode = MODE_COMMAND
+            self.prompt = "/"
+            self.command = ""
+        elif key == "n":
+            self._repeat_search(forward=True)
+        elif key == "N":
+            self._repeat_search(forward=False)
+        elif key == "x":
+            self._delete_char_under_cursor()
+        elif key == "u":
+            self._undo()
+        elif key == "p":
+            self._put_below()
+        elif key == "P":
+            self._put_above()
+        else:
+            self._move(key)
+
+        self._clamp_cursor()
+
+    def _move(self, key: str) -> bool:
+        if key in ("h", "left"):
             self.col = max(0, self.col - 1)
         elif key in ("l", "right"):
             self.col = min(len(self.buffer.line(self.row)), self.col + 1)
@@ -180,25 +218,123 @@ class Editor:
             self._word_forward()
         elif key == "b":
             self._word_backward()
-        elif key == "x":
-            self._delete_char_under_cursor()
-        elif key == "u":
-            self._undo()
-        elif key == ":":
-            self.mode = MODE_COMMAND
-            self.prompt = ":"
-            self.command = ""
-        elif key == "/":
-            self.mode = MODE_COMMAND
-            self.prompt = "/"
-            self.command = ""
-        elif key == "n":
-            self._repeat_search(forward=True)
-        elif key == "N":
-            self._repeat_search(forward=False)
+        else:
+            return False
 
+        return True
+
+    def _clamp_cursor(self) -> None:
         line = self.buffer.line(self.row)
         self.col = min(self.col, max(0, len(line) - 1))
+
+    def _handle_visual(self, key: str) -> None:
+        if key in ("escape", "v"):
+            self.mode = MODE_NORMAL
+            self.visual_anchor = None
+
+            return
+
+        if key == "y":
+            self._yank_selection()
+            self.mode = MODE_NORMAL
+            self.visual_anchor = None
+
+            return
+
+        if key in ("d", "x"):
+            self._delete_selection()
+            self.mode = MODE_NORMAL
+            self.visual_anchor = None
+
+            return
+
+        if self.sequence:
+            if time.monotonic() - self.sequence_at > self.sequence_timeout:
+                self.sequence = None
+            else:
+                self._finish_sequence(key)
+                self._clamp_cursor()
+
+                return
+
+        if key == "g":
+            self.sequence = "g"
+            self.sequence_at = time.monotonic()
+
+            return
+
+        self._move(key)
+        self._clamp_cursor()
+
+    def _selection(self) -> Tuple[int, int, int, int, List[str]]:
+        anchor = self.visual_anchor or (self.row, self.col)
+        if anchor <= (self.row, self.col):
+            start_row, start_col = anchor
+            end_row, end_col = self.row, self.col
+        else:
+            start_row, start_col = self.row, self.col
+            end_row, end_col = anchor
+
+        if start_row == end_row:
+            chunk = [self.buffer.line(start_row)[start_col : end_col + 1]]
+        else:
+            chunk = [self.buffer.line(start_row)[start_col:]]
+            chunk.extend(self.buffer.line(row) for row in range(start_row + 1, end_row))
+            chunk.append(self.buffer.line(end_row)[: end_col + 1])
+
+        return start_row, start_col, end_row, end_col, chunk
+
+    def _yank_selection(self) -> None:
+        _, _, _, _, chunk = self._selection()
+        self.register = chunk
+        self.register_linewise = False
+        self.message = f"{len(chunk)} lines yanked"
+
+    def _delete_selection(self) -> None:
+        start_row, start_col, end_row, end_col, chunk = self._selection()
+        self.register = chunk
+        self.register_linewise = False
+        self._push_undo()
+        self.buffer.delete((start_row, start_col), (end_row, end_col + 1))
+        self.row = start_row
+        self.col = start_col
+        self._clamp_cursor()
+
+    def _yank_line(self) -> None:
+        self.register = [self.buffer.line(self.row)]
+        self.register_linewise = True
+        self.message = "1 line yanked"
+
+    def _put_below(self) -> None:
+        if not self.register:
+            return
+
+        self._push_undo()
+        if self.register_linewise:
+            text = "\n" + "\n".join(self.register)
+            row, _ = self.buffer.insert(self.row, len(self.buffer.line(self.row)), text)
+            self.row, self.col = row, 0
+        else:
+            text = "\n".join(self.register)
+            col = min(self.col + 1, len(self.buffer.line(self.row)))
+            self.row, self.col = self.buffer.insert(self.row, col, text)
+
+        self._clamp_cursor()
+
+    def _put_above(self) -> None:
+        if not self.register:
+            return
+
+        self._push_undo()
+        if self.register_linewise:
+            text = "\n".join(self.register) + "\n"
+            self.buffer.insert(self.row, 0, text)
+            self.col = 0
+        else:
+            text = "\n".join(self.register)
+            self.row, self.col = self.buffer.insert(self.row, self.col, text)
+
+        self._clamp_cursor()
 
     def _handle_command(self, key: str) -> None:
         if key == "escape":
@@ -354,6 +490,11 @@ class Editor:
 
             return
 
+        if sequence == key == "y":
+            self._yank_line()
+
+            return
+
         self.message = "Invalid key sequence"
 
     def _changed_on_disk(self) -> bool:
@@ -423,10 +564,13 @@ class Editor:
         self.buffer.delete((self.row, self.col), (self.row, self.col + 1))
 
     def _delete_line(self) -> None:
-        if self.buffer.line_count == 1:
-            if not self.buffer.lines[0]:
-                return
+        if self.buffer.line_count == 1 and not self.buffer.lines[0]:
+            return
 
+        self.register = [self.buffer.line(self.row)]
+        self.register_linewise = True
+
+        if self.buffer.line_count == 1:
             self._push_undo()
             self.buffer.delete((0, 0), (0, len(self.buffer.lines[0])))
             self.row, self.col = 0, 0
