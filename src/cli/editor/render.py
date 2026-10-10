@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, NamedTuple
 
 from .buffer import TAB_WIDTH
+from .syntax import Span, highlight_line
 
 if TYPE_CHECKING:
     from .core import Editor
@@ -14,6 +15,7 @@ class Frame(NamedTuple):
     lines: List[str]
     cursor_row: int
     cursor_col: int
+    styles: List[List[Span]]
 
 
 def render(editor: "Editor", rows: int, cols: int) -> Frame:
@@ -23,13 +25,18 @@ def render(editor: "Editor", rows: int, cols: int) -> Frame:
     _follow(editor, text_rows)
 
     lines: List[str] = []
+    styles: List[List[Span]] = []
     for index in range(text_rows):
         source_row = editor.top_row + index
         if source_row >= editor.buffer.line_count:
             lines.append("")
+            styles.append([])
         else:
-            lines.append(_visible(editor.buffer.line(source_row), editor.left_col, cols))
+            expanded = _expand_tabs(editor.buffer.line(source_row))
+            lines.append(expanded[editor.left_col : editor.left_col + cols])
+            styles.append(_clip_spans(highlight_line(expanded), editor.left_col, cols))
     lines.append(_last_line(editor, cols))
+    styles.append([])
 
     if editor.mode == "command":
         screen_row = len(lines) - 1
@@ -39,7 +46,7 @@ def render(editor: "Editor", rows: int, cols: int) -> Frame:
         screen_col = _screen_column(editor.buffer.line(editor.row), editor.col) - editor.left_col
         screen_col = max(0, min(screen_col, cols - 1))
 
-    return Frame(lines, screen_row, screen_col)
+    return Frame(lines, screen_row, screen_col, styles)
 
 
 def _follow(editor: "Editor", text_rows: int) -> None:
@@ -69,8 +76,16 @@ def _screen_column(line: str, col: int) -> int:
     return len(_expand_tabs(line[:col]))
 
 
-def _visible(line: str, left_col: int, cols: int) -> str:
-    return _expand_tabs(line)[left_col : left_col + cols]
+def _clip_spans(spans: List[Span], left_col: int, cols: int) -> List[Span]:
+    window_end = left_col + cols
+    clipped: List[Span] = []
+    for start, end, kind in spans:
+        begin = max(start, left_col)
+        finish = min(end, window_end)
+        if begin < finish:
+            clipped.append((begin - left_col, finish - left_col, kind))
+
+    return clipped
 
 
 def _last_line(editor: "Editor", cols: int) -> str:

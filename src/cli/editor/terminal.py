@@ -5,12 +5,13 @@ import select
 import shutil
 import sys
 import time
-from typing import Optional, TextIO, Tuple
+from typing import List, Optional, TextIO, Tuple
 
 from .keys import parse_key
 from .render import Frame
+from .syntax import Span
 
-__all__ = ["EditorError", "Terminal"]
+__all__ = ["EditorError", "Terminal", "apply_styles"]
 
 _ENTER_ALT = "\x1b[?1049h"
 _LEAVE_ALT = "\x1b[?1049l"
@@ -20,6 +21,34 @@ _RESET = "\x1b[0m"
 _CLEAR = "\x1b[2J\x1b[H"
 
 _SEQUENCE_WAIT = 0.1
+
+_STYLE_CODES = {
+    "keyword": "\x1b[1;34m",
+    "builtin": "\x1b[36m",
+    "constant": "\x1b[35m",
+    "type": "\x1b[33m",
+    "string": "\x1b[32m",
+    "number": "\x1b[36m",
+    "comment": "\x1b[90m",
+}
+
+
+def apply_styles(line: str, spans: List[Span]) -> str:
+    if not spans:
+        return line
+
+    pieces: List[str] = []
+    cursor = 0
+    for start, end, kind in spans:
+        if start > cursor:
+            pieces.append(line[cursor:start])
+        pieces.append(_STYLE_CODES.get(kind, ""))
+        pieces.append(line[start:end])
+        pieces.append(_RESET)
+        cursor = end
+    pieces.append(line[cursor:])
+
+    return "".join(pieces)
 
 
 class EditorError(Exception):
@@ -70,7 +99,8 @@ class Terminal:
     def draw(self, frame: Frame) -> None:
         parts = []
         for index, line in enumerate(frame.lines):
-            parts.append(f"\x1b[{index + 1};1H{line}\x1b[K")
+            spans = frame.styles[index] if index < len(frame.styles) else []
+            parts.append(f"\x1b[{index + 1};1H{apply_styles(line, spans)}\x1b[K")
         parts.append(f"\x1b[{len(frame.lines) + 1};1H\x1b[J")
         parts.append(f"\x1b[{frame.cursor_row + 1};{frame.cursor_col + 1}H")
         self._write("".join(parts))

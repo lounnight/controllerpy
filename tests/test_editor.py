@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -7,8 +9,10 @@ import pytest
 
 from controllerpy.cli import EXIT_OK, EXIT_USAGE, main
 from controllerpy.cli.commands import edit as edit_module
-from controllerpy.cli.editor import Editor, TextBuffer, render, run_editor
+from controllerpy.cli.editor import Editor, Frame, TextBuffer, render, run_editor
 from controllerpy.cli.editor.keys import parse_key, parse_keys
+from controllerpy.cli.editor.syntax import highlight_line
+from controllerpy.cli.editor.terminal import Terminal, apply_styles
 
 PROGRAM = (
     "from builtins import *\n"
@@ -841,6 +845,87 @@ def test_render_status_shows_visual_mode(tmp_path):
     editor.handle_key("v")
 
     assert "VISUAL" in render(editor, 4, 60).lines[-1]
+
+
+def test_highlight_keywords_and_comments():
+    spans = highlight_line("def main():  # start")
+
+    assert (0, 3, "keyword") in spans
+    assert (13, 20, "comment") in spans
+    assert spans[-1][2] == "comment"
+
+
+def test_highlight_builtins_numbers_and_constants():
+    spans = highlight_line("pin_mode(13, OUTPUT)")
+
+    assert (0, 8, "builtin") in spans
+    assert (9, 11, "number") in spans
+    assert (13, 19, "constant") in spans
+
+
+def test_highlight_strings_and_types():
+    spans = highlight_line('x = String("hi")')
+
+    assert (4, 10, "type") in spans
+    assert (11, 15, "string") in spans
+
+
+def test_highlight_numeric_literals():
+    spans = highlight_line("x = 0x1F + 3.5")
+
+    assert (4, 8, "number") in spans
+    assert (11, 14, "number") in spans
+
+
+def test_highlight_comment_consumes_rest_of_line():
+    line = 'x = 1  # def "str"'
+    spans = highlight_line(line)
+
+    assert spans[-1] == (7, len(line), "comment")
+    assert not any(kind in ("keyword", "string") for _, _, kind in spans)
+
+
+def test_render_produces_styles_for_source_lines(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("def main():  # hi\n"), disk_version=None)
+
+    frame = render(editor, 4, 40)
+
+    assert (0, 3, "keyword") in frame.styles[0]
+    assert any(kind == "comment" for _, _, kind in frame.styles[0])
+    assert frame.styles[-1] == []
+    assert len(frame.styles) == len(frame.lines)
+
+
+def test_render_clips_styles_when_scrolled(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("def main():\n"), disk_version=None)
+    editor.left_col = 2
+
+    frame = render(editor, 3, 20)
+
+    assert frame.lines[0] == "f main():"
+    assert (0, 1, "keyword") in frame.styles[0]
+
+
+def test_apply_styles_wraps_spans_with_colour_codes():
+    styled = apply_styles("def x", [(0, 3, "keyword")])
+
+    assert styled == "\x1b[1;34mdef\x1b[0m x"
+    assert apply_styles("plain", []) == "plain"
+
+
+def test_terminal_draw_emits_style_codes():
+    out = io.StringIO()
+    terminal = Terminal(stdin=sys.stdin, stdout=out)
+    frame = Frame(["def x"], 0, 0, [[(0, 3, "keyword")]])
+
+    terminal.draw(frame)
+
+    rendered = out.getvalue()
+    assert "\x1b[1;34m" in rendered
+    assert "def" in rendered
+    assert "\x1b[0m" in rendered
 
 
 def test_parse_key_reads_named_keys():
