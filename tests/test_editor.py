@@ -504,11 +504,15 @@ def test_render_status_shows_mode(tmp_path):
     assert "INSERT" in render(editor, 4, 60).lines[-1]
 
 
-def run_command(editor: Editor, text: str) -> None:
-    editor.handle_key(":")
+def run_prompt(editor: Editor, prompt: str, text: str) -> None:
+    editor.handle_key(prompt)
     for char in text:
         editor.handle_key(char)
     editor.handle_key("enter")
+
+
+def run_command(editor: Editor, text: str) -> None:
+    run_prompt(editor, ":", text)
 
 
 def test_editor_command_save_writes_the_file(tmp_path):
@@ -630,6 +634,97 @@ def test_render_command_line_positions_cursor(tmp_path):
     frame = render(editor, 4, 40)
     assert frame.lines[-1] == ":w"
     assert frame.cursor_row == 3
+    assert frame.cursor_col == 2
+
+
+def test_editor_search_moves_to_matching_line(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\nbeta\ngamma\nbeta again\n"), disk_version=None)
+
+    run_prompt(editor, "/", "beta")
+
+    assert (editor.row, editor.col) == (1, 0)
+
+
+def test_editor_search_sets_column_to_match(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("xxxxmatch\n"), disk_version=None)
+
+    run_prompt(editor, "/", "match")
+
+    assert (editor.row, editor.col) == (0, 4)
+
+
+def test_editor_search_repeat_and_reverse(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("x\nmatch\ny\nmatch\n"), disk_version=None)
+
+    run_prompt(editor, "/", "match")
+    assert editor.row == 1
+
+    editor.handle_key("n")
+    assert editor.row == 3
+
+    editor.handle_key("n")
+    assert editor.row == 1
+
+    editor.handle_key("N")
+    assert editor.row == 3
+
+
+def test_editor_empty_search_repeats_last(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("match\nx\nmatch\n"), disk_version=None)
+
+    run_prompt(editor, "/", "match")
+    assert editor.row == 2
+
+    run_prompt(editor, "/", "")
+    assert editor.row == 0
+
+
+def test_editor_search_reports_when_not_found(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\n"), disk_version=None)
+
+    run_prompt(editor, "/", "nope")
+
+    assert "Pattern not found" in editor.message
+
+
+def test_editor_repeat_search_without_history(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\n"), disk_version=None)
+
+    editor.handle_key("n")
+
+    assert "No previous search" in editor.message
+
+
+def test_editor_search_escape_cancels(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\n"), disk_version=None)
+
+    editor.handle_key("/")
+    editor.handle_key("m")
+    assert editor.mode == "command"
+
+    editor.handle_key("escape")
+
+    assert editor.mode == "normal"
+    assert editor.command == ""
+    assert editor.prompt == ""
+
+
+def test_render_search_line_positions_cursor(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\n"), disk_version=None)
+
+    editor.handle_key("/")
+    editor.handle_key("m")
+
+    frame = render(editor, 4, 40)
+    assert frame.lines[-1] == "/m"
     assert frame.cursor_col == 2
 
 

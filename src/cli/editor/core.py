@@ -43,6 +43,8 @@ class Editor:
         self.mode = MODE_NORMAL
         self.message = ""
         self.command = ""
+        self.prompt = ""
+        self.search = ""
         self.running = True
         self.discarded = False
         self.pending: Optional[str] = None
@@ -184,7 +186,16 @@ class Editor:
             self._undo()
         elif key == ":":
             self.mode = MODE_COMMAND
+            self.prompt = ":"
             self.command = ""
+        elif key == "/":
+            self.mode = MODE_COMMAND
+            self.prompt = "/"
+            self.command = ""
+        elif key == "n":
+            self._repeat_search(forward=True)
+        elif key == "N":
+            self._repeat_search(forward=False)
 
         line = self.buffer.line(self.row)
         self.col = min(self.col, max(0, len(line) - 1))
@@ -193,14 +204,20 @@ class Editor:
         if key == "escape":
             self.mode = MODE_NORMAL
             self.command = ""
+            self.prompt = ""
 
             return
 
         if key == "enter":
+            prompt = self.prompt
             command = self.command
             self.mode = MODE_NORMAL
+            self.prompt = ""
             self.command = ""
-            self._run_command(command)
+            if prompt == ":":
+                self._run_command(command)
+            else:
+                self._run_search(command)
 
             return
 
@@ -282,6 +299,47 @@ class Editor:
         self.row = 0
         self.col = 0
         self._undo_stack.clear()
+
+    def _run_search(self, query: str) -> None:
+        if query:
+            self.search = query
+
+        if not self.search:
+            return
+
+        if not self._find(self.search, forward=True):
+            self.message = f"Pattern not found: {self.search}"
+
+    def _repeat_search(self, *, forward: bool) -> None:
+        if not self.search:
+            self.message = "No previous search"
+
+            return
+
+        if not self._find(self.search, forward=forward):
+            self.message = f"Pattern not found: {self.search}"
+
+    def _find(self, query: str, *, forward: bool) -> bool:
+        count = self.buffer.line_count
+        for step in range(count):
+            if forward:
+                target = (self.row + step) % count
+            else:
+                target = (self.row - step) % count
+            line = self.buffer.line(target)
+            if forward:
+                start = self.col + 1 if step == 0 else 0
+                index = line.find(query, start)
+            else:
+                limit = self.col if step == 0 else len(line)
+                index = line.rfind(query, 0, limit)
+            if index != -1:
+                self.row = target
+                self.col = min(index, max(0, len(line) - 1))
+
+                return True
+
+        return False
 
     def _finish_sequence(self, key: str) -> None:
         sequence = self.sequence

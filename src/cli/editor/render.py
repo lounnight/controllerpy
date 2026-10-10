@@ -33,7 +33,7 @@ def render(editor: "Editor", rows: int, cols: int) -> Frame:
 
     if editor.mode == "command":
         screen_row = len(lines) - 1
-        screen_col = max(0, min(1 + len(editor.command), cols - 1))
+        screen_col = max(0, min(len(editor.prompt) + len(editor.command), cols - 1))
     else:
         screen_row = max(0, min(editor.row - editor.top_row, len(lines) - 1))
         screen_col = _screen_column(editor.buffer.line(editor.row), editor.col) - editor.left_col
@@ -75,7 +75,7 @@ def _visible(line: str, left_col: int, cols: int) -> str:
 
 def _last_line(editor: "Editor", cols: int) -> str:
     if editor.mode == "command":
-        return ":" + editor.command[: cols - 1]
+        return (editor.prompt + editor.command)[:cols]
 
     if editor.message:
         return " " + editor.message[: cols - 1]
