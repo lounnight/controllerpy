@@ -74,6 +74,7 @@ python3 -m src build main.py
 controllerpy init                                  # IDE setup: controllerpy_api.pyi + pyrightconfig.json
 controllerpy build main.py                          # build/main.ino
 controllerpy check main.py                          # parse + validate only
+controllerpy edit main.py                           # edit in the terminal (Vim-like)
 controllerpy clean                                  # remove generated files
 controllerpy compile main.py --board arduino:avr:uno
 controllerpy upload  main.py --board uno --port /dev/ttyACM0
@@ -89,6 +90,7 @@ controllerpy stubs                                  # controllerpy_api.pyi only 
 | `init [-f/--force]` | writes `controllerpy_api.pyi`, `pyrightconfig.json` and `main.py` (see *IDE and type-checker support*) | no |
 | `build SOURCE` | transpiles to `<output>/<name>.ino` (default `build/`) | no |
 | `check SOURCE` | parses and validates, writes nothing | no |
+| `edit SOURCE` | opens an interactive, Vim-like editor (creates the file) | no |
 | `clean` | deletes `--output-dir` | no |
 | `compile SOURCE --board B` | `build` + writes the sketch folder + `arduino-cli compile` | yes |
 | `upload SOURCE --board B --port P` | `compile` + `arduino-cli upload` | yes |
@@ -117,6 +119,41 @@ always the file to write, never a directory.
 Exit codes: `0` success, `1` source/compiler error, `2` usage error (for
 example a missing `--port`), `3` arduino-cli missing or failed, `70` internal
 error.
+
+### Editing source files
+
+`controllerpy edit SOURCE` opens `SOURCE` in a small, Vim-inspired editor that
+runs entirely in the terminal. It creates the file when it does not exist, and
+refuses a directory, a missing parent directory, a file that is not UTF-8, or a
+non-interactive terminal (a pipe or a file). It needs a POSIX terminal, so it
+runs on Linux and macOS.
+
+The editor starts in **normal mode**. Press `i` to type and `Esc` to go back:
+
+| Keys | Action |
+| --- | --- |
+| `i` | insert mode - type text; `Esc` returns to normal mode |
+| `h` `j` `k` `l`, arrows | move left, down, up, right |
+| `0` / `$` | start / end of line |
+| `w` / `b` | next / previous word |
+| `gg` | jump to the first line |
+| `x` / `dd` | delete the character under the cursor / the current line |
+| `u` | undo |
+| `v` | visual mode - move, then `y` to yank or `d` to delete the selection |
+| `yy` / `p` / `P` | yank the current line / paste below / paste above |
+| `/TEXT` | search; `n` and `N` repeat forwards and backwards |
+| `:w` / `:q` | save / quit |
+| `:q!` / `:wq` | quit, discarding changes / save and quit |
+| `:e` | reload the file from disk |
+| `:NUMBER` / `:$` | go to that line / the last line |
+| `Ctrl-s` / `Ctrl-q` | save / quit (the same as `:w` / `:q`) |
+
+`Ctrl-q` (and `:q`) refuses to leave while there are unsaved changes until it is
+pressed twice, and a file that changed on disk is not overwritten until `Ctrl-s`
+(or `:w`) is pressed again. Source lines are highlighted for the controllerpy
+language - keywords, built-in functions, constants, strings, numbers and
+comments. On exit the editor reports how many lines the file has, and warns when
+unsaved changes were discarded.
 
 ### Reading the output
 
