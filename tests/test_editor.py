@@ -265,17 +265,17 @@ def test_render_layout_and_status(tmp_path):
     path = tmp_path / "main.py"
     editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
 
-    frame = render(editor, 4, 30)
-    assert frame.lines[0] == "abc"
+    frame = render(editor, 4, 40)
+    assert frame.lines[0] == "  1 | abc"
     assert frame.lines[1] == ""
     assert "main.py" in frame.lines[-1]
-    assert "1:1" in frame.lines[-1]
+    assert "Line 1, Col 1" in frame.lines[-1]
     assert "NORMAL" in frame.lines[-1]
     assert frame.cursor_row == 0
-    assert frame.cursor_col == 0
+    assert frame.cursor_col == 6
 
     editor.message = "hello"
-    frame = render(editor, 4, 30)
+    frame = render(editor, 4, 40)
     assert frame.lines[-1] == " hello"
 
 
@@ -284,11 +284,11 @@ def test_render_expands_tabs_for_display(tmp_path):
     editor = Editor(path, TextBuffer.from_text("\tx\n"), disk_version=None)
 
     frame = render(editor, 3, 20)
-    assert frame.lines[0] == "    x"
+    assert frame.lines[0] == "  1 |     x"
 
     editor.col = 1
     frame = render(editor, 3, 20)
-    assert frame.cursor_col == 4
+    assert frame.cursor_col == 10
 
 
 def test_render_keeps_cursor_visible_while_scrolling(tmp_path):
@@ -314,7 +314,7 @@ def test_render_clips_to_small_terminals(tmp_path):
     editor.col = 6
 
     frame = render(editor, 3, 4)
-    assert frame.lines[0] == "abcd"
+    assert frame.lines[0] == "def"
     assert len(frame.lines) == 3
 
     frame = render(editor, 1, 4)
@@ -891,7 +891,7 @@ def test_render_produces_styles_for_source_lines(tmp_path):
 
     frame = render(editor, 4, 40)
 
-    assert (0, 3, "keyword") in frame.styles[0]
+    assert (6, 9, "keyword") in frame.styles[0]
     assert any(kind == "comment" for _, _, kind in frame.styles[0])
     assert frame.styles[-1] == []
     assert len(frame.styles) == len(frame.lines)
@@ -899,26 +899,138 @@ def test_render_produces_styles_for_source_lines(tmp_path):
 
 def test_render_clips_styles_when_scrolled(tmp_path):
     path = tmp_path / "main.py"
-    editor = Editor(path, TextBuffer.from_text("def main():\n"), disk_version=None)
-    editor.left_col = 2
+    editor = Editor(path, TextBuffer.from_text("def main(): 0123456789\n"), disk_version=None)
+    editor.col = 15
 
     frame = render(editor, 3, 20)
 
-    assert frame.lines[0] == "f main():"
-    assert (0, 1, "keyword") in frame.styles[0]
+    assert editor.left_col == 2
+    assert frame.lines[0] == "  1 | f main(): 0123"
+    assert (6, 7, "keyword") in frame.styles[0]
 
 
-def test_apply_styles_wraps_spans_with_colour_codes():
+def test_render_number_width_grows_with_line_count(tmp_path):
+    path = tmp_path / "main.py"
+    small = Editor(path, TextBuffer.from_text("alpha\nbeta\n"), disk_version=None)
+    large = Editor(path, TextBuffer.from_text("".join(f"l{i}\n" for i in range(1234))), disk_version=None)
+
+    frame = render(small, 4, 40)
+    assert frame.lines[0] == "  1 | alpha"
+
+    frame = render(large, 4, 40)
+    assert frame.lines[0] == "   1 | l0"
+
+
+def test_render_numbering_tracks_line_deletion(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\nbeta\ngamma\n"), disk_version=None)
+
+    frame = render(editor, 5, 30)
+    assert frame.lines[0] == "  1 | alpha"
+    assert frame.lines[2] == "  3 | gamma"
+
+    editor.handle_key("d")
+    editor.handle_key("d")
+
+    frame = render(editor, 5, 30)
+    assert frame.lines[0] == "  1 | beta"
+    assert frame.lines[1] == "  2 | gamma"
+    assert frame.lines[2] == ""
+
+
+def test_render_hides_gutter_when_columns_are_too_narrow(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    frame = render(editor, 3, 5)
+    assert frame.lines[0] == "abc"
+    assert frame.cursor_col == 0
+
+
+def test_render_highlight_row_tracks_the_cursor(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\nbeta\ngamma\n"), disk_version=None)
+    editor.row = 1
+
+    frame = render(editor, 5, 30)
+    assert frame.highlight_row == 1
+    assert frame.cursor_row == 1
+
+    editor.mode = "command"
+    frame = render(editor, 5, 30)
+    assert frame.highlight_row == -1
+
+
+def test_render_cursor_column_accounts_for_gutter_and_tabs(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("\tab\n"), disk_version=None)
+    editor.col = 1
+
+    frame = render(editor, 3, 30)
+    assert frame.lines[0] == "  1 |     ab"
+    assert frame.cursor_col == 10
+
+
+def test_render_status_reports_line_and_column(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\nbeta\ngamma\n"), disk_version=None)
+    editor.row = 2
+    editor.col = 3
+
+    frame = render(editor, 5, 60)
+    assert "Line 3, Col 4" in frame.lines[-1]
+
+
+def test_render_scrolls_horizontally_to_keep_cursor_visible(tmp_path):
+    path = tmp_path / "main.py"
+    long_line = "".join(str(i % 10) for i in range(60))
+    editor = Editor(path, TextBuffer.from_text(long_line + "\n"), disk_version=None)
+    editor.col = 55
+
+    frame = render(editor, 3, 20)
+    assert editor.left_col > 0
+    assert frame.cursor_col <= 19
+    assert frame.lines[0].startswith("  1 | ")
+    assert len(frame.lines[0]) <= 20
+
+    editor.col = 0
+    frame = render(editor, 3, 20)
+    assert editor.left_col == 0
+    assert frame.cursor_col == 6
+
+
+def test_render_keeps_gutter_while_in_command_mode(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\n"), disk_version=None)
+    editor.mode = "command"
+
+    frame = render(editor, 3, 30)
+    assert frame.lines[0] == "  1 | alpha"
+    assert frame.highlight_row == -1
+
+
+def test_gutter_and_cursor_are_not_written_to_disk(tmp_path, monkeypatch):
+    path = tmp_path / "main.py"
+    path.write_text("alpha\n", encoding="utf-8")
+    monkeypatch.setattr(edit_module, "Terminal", lambda: FakeScreen(["l", "i", "z", "ctrl+s", "ctrl+q"]))
+
+    code = main(["edit", str(path)])
+
+    assert code == EXIT_OK
+    assert path.read_text(encoding="utf-8") == "azlpha\n"
+
+
+
     styled = apply_styles("def x", [(0, 3, "keyword")])
 
-    assert styled == "\x1b[1;34mdef\x1b[0m x"
+    assert styled == "\x1b[1;34mdef\x1b[22;39m x"
     assert apply_styles("plain", []) == "plain"
 
 
 def test_terminal_draw_emits_style_codes():
     out = io.StringIO()
     terminal = Terminal(stdin=sys.stdin, stdout=out)
-    frame = Frame(["def x"], 0, 0, [[(0, 3, "keyword")]])
+    frame = Frame(["def x"], 0, 0, [[(0, 3, "keyword")]], -1)
 
     terminal.draw(frame)
 

@@ -15,10 +15,11 @@ __all__ = ["EditorError", "Terminal", "apply_styles"]
 
 _ENTER_ALT = "\x1b[?1049h"
 _LEAVE_ALT = "\x1b[?1049l"
-_HIDE_CURSOR = "\x1b[?25l"
 _SHOW_CURSOR = "\x1b[?25h"
 _RESET = "\x1b[0m"
 _CLEAR = "\x1b[2J\x1b[H"
+_CURRENT_LINE = "\x1b[48;5;236m"
+_STYLE_OFF = "\x1b[22;39m"
 
 _SEQUENCE_WAIT = 0.1
 
@@ -44,7 +45,7 @@ def apply_styles(line: str, spans: List[Span]) -> str:
             pieces.append(line[cursor:start])
         pieces.append(_STYLE_CODES.get(kind, ""))
         pieces.append(line[start:end])
-        pieces.append(_RESET)
+        pieces.append(_STYLE_OFF)
         cursor = end
     pieces.append(line[cursor:])
 
@@ -77,7 +78,7 @@ class Terminal:
         self._saved = termios.tcgetattr(self._fd)
         try:
             tty.setraw(self._fd)
-            self._write(_ENTER_ALT + _HIDE_CURSOR + _CLEAR)
+            self._write(_ENTER_ALT + _SHOW_CURSOR + _CLEAR)
         except BaseException:
             self._restore()
 
@@ -100,7 +101,8 @@ class Terminal:
         parts = []
         for index, line in enumerate(frame.lines):
             spans = frame.styles[index] if index < len(frame.styles) else []
-            parts.append(f"\x1b[{index + 1};1H{apply_styles(line, spans)}\x1b[K")
+            background = _CURRENT_LINE if index == frame.highlight_row else ""
+            parts.append(f"\x1b[{index + 1};1H{background}{apply_styles(line, spans)}\x1b[K{_RESET}")
         parts.append(f"\x1b[{len(frame.lines) + 1};1H\x1b[J")
         parts.append(f"\x1b[{frame.cursor_row + 1};{frame.cursor_col + 1}H")
         self._write("".join(parts))
