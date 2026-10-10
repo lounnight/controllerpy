@@ -13,6 +13,11 @@ __all__ = ["Frame", "render"]
 MIN_NUMBER_WIDTH = 3
 GUTTER_SEPARATOR = " | "
 
+PROMPT_KIND = "prompt"
+MESSAGE_KIND = "message"
+ERROR_KIND = "error"
+IDLE_KIND = "idle"
+
 
 class Frame(NamedTuple):
     lines: List[str]
@@ -20,12 +25,16 @@ class Frame(NamedTuple):
     cursor_col: int
     styles: List[List[Span]]
     highlight_row: int
+    status_row: int
+    command_row: int
+    command_kind: str
 
 
 def render(editor: "Editor", rows: int, cols: int) -> Frame:
     rows = max(rows, 1)
     cols = max(cols, 1)
-    text_rows = max(rows - 1, 0)
+    status_rows = 1 if rows >= 2 else 0
+    text_rows = max(rows - 1 - status_rows, 0)
     _follow(editor, text_rows)
 
     number_width = _number_width(editor.buffer.line_count)
@@ -57,20 +66,32 @@ def render(editor: "Editor", rows: int, cols: int) -> Frame:
             spans = [(start + gutter_width, end + gutter_width, kind) for start, end, kind in spans]
         styles.append(spans)
 
-    lines.append(_last_line(editor, cols))
+    status_row = -1
+    if status_rows:
+        status_row = len(lines)
+        lines.append(_status_line(editor, cols))
+        styles.append([])
+
+    command_kind = _command_kind(editor)
+    command_row = len(lines)
+    lines.append(_command_line(editor, cols, command_kind))
     styles.append([])
 
     if editor.mode == "command":
-        screen_row = len(lines) - 1
-        screen_col = max(0, min(len(editor.prompt) + len(editor.command), cols - 1))
+        cursor_row = command_row
+        cursor_col = max(0, min(len(editor.prompt) + len(editor.command), cols - 1))
         highlight_row = -1
-    else:
-        screen_row = max(0, min(editor.row - editor.top_row, len(lines) - 1))
+    elif text_rows > 0:
+        cursor_row = max(0, min(editor.row - editor.top_row, text_rows - 1))
         cursor_column = _screen_column(editor.buffer.line(editor.row), editor.col)
-        screen_col = max(0, min(gutter_width + cursor_column - editor.left_col, cols - 1))
-        highlight_row = screen_row
+        cursor_col = max(0, min(gutter_width + cursor_column - editor.left_col, cols - 1))
+        highlight_row = cursor_row
+    else:
+        cursor_row = command_row
+        cursor_col = 0
+        highlight_row = -1
 
-    return Frame(lines, screen_row, screen_col, styles, highlight_row)
+    return Frame(lines, cursor_row, cursor_col, styles, highlight_row, status_row, command_row, command_kind)
 
 
 def _number_width(line_count: int) -> int:
@@ -129,13 +150,7 @@ def _clip_spans(spans: List[Span], left_col: int, cols: int) -> List[Span]:
     return clipped
 
 
-def _last_line(editor: "Editor", cols: int) -> str:
-    if editor.mode == "command":
-        return (editor.prompt + editor.command)[:cols]
-
-    if editor.message:
-        return " " + editor.message[: cols - 1]
-
+def _status_line(editor: "Editor", cols: int) -> str:
     dirty = " [+]" if editor.dirty else ""
     position = f"  Line {editor.row + 1}, Col {editor.col + 1}  {editor.mode.upper()}"
     hint = "  ctrl+s save  ctrl+q quit  : command"
@@ -145,3 +160,24 @@ def _last_line(editor: "Editor", cols: int) -> str:
             return line
 
     return f" {editor.path.name}{dirty}{position}{hint}"[:cols]
+
+
+def _command_kind(editor: "Editor") -> str:
+    if editor.mode == "command":
+        return PROMPT_KIND
+    if editor.error:
+        return ERROR_KIND
+    if editor.message:
+        return MESSAGE_KIND
+
+    return IDLE_KIND
+
+
+def _command_line(editor: "Editor", cols: int, kind: str) -> str:
+    if kind == PROMPT_KIND:
+        return (editor.prompt + editor.command)[:cols]
+
+    if editor.message:
+        return " " + editor.message[: cols - 1]
+
+    return ""

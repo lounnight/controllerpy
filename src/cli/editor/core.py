@@ -43,6 +43,7 @@ class Editor:
         self.left_col = 0
         self.mode = MODE_NORMAL
         self.message = ""
+        self.error = False
         self.command = ""
         self.prompt = ""
         self.search = ""
@@ -64,6 +65,7 @@ class Editor:
 
     def handle_key(self, key: str) -> None:
         self.message = ""
+        self.error = False
         if key == "ctrl+q":
             self.sequence = None
             if self.dirty and self.pending != "quit":
@@ -114,6 +116,7 @@ class Editor:
             with open(self.path, "w", encoding="utf-8", newline="") as handle:
                 handle.write(self.buffer.text())
         except OSError as exc:
+            self.error = True
             self.message = f"Cannot write {self.path}: {exc.strerror or exc}"
 
             return False
@@ -385,6 +388,7 @@ class Editor:
 
                 return
 
+            self.error = True
             self.message = "No write since last change (add ! to override)"
 
             return
@@ -414,6 +418,7 @@ class Editor:
 
             return
 
+        self.error = True
         self.message = f"Unknown command: {text}"
 
     def _reload(self) -> None:
@@ -421,10 +426,12 @@ class Editor:
             with open(self.path, "r", encoding="utf-8", newline="") as handle:
                 text = handle.read()
         except FileNotFoundError:
+            self.error = True
             self.message = f"Cannot read {self.path}: no such file"
 
             return
         except OSError as exc:
+            self.error = True
             self.message = f"Cannot read {self.path}: {exc.strerror or exc}"
 
             return
@@ -444,6 +451,7 @@ class Editor:
             return
 
         if not self._find(self.search, forward=True):
+            self.error = True
             self.message = f"Pattern not found: {self.search}"
 
     def _repeat_search(self, *, forward: bool) -> None:
@@ -453,6 +461,7 @@ class Editor:
             return
 
         if not self._find(self.search, forward=forward):
+            self.error = True
             self.message = f"Pattern not found: {self.search}"
 
     def _find(self, query: str, *, forward: bool) -> bool:
@@ -495,6 +504,7 @@ class Editor:
 
             return
 
+        self.error = True
         self.message = "Invalid key sequence"
 
     def _changed_on_disk(self) -> bool:

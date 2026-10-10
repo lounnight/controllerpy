@@ -154,9 +154,11 @@ pressed twice, and a file that changed on disk is not overwritten until `Ctrl-s`
 language - keywords, built-in functions, constants, strings, numbers and
 comments. Line numbers run down the left edge, the line holding the cursor is
 highlighted, and the status line reports the position as `Line R, Col C` next to
-the current mode, with `[+]` marking unsaved changes. Saving writes only the file
-text, never the gutter or cursor. On exit the editor reports how many lines the
-file has, and warns when unsaved changes were discarded.
+the current mode, with `[+]` marking unsaved changes. A dedicated command line
+sits at the very bottom: it shows the `:` or `/` prompt while typing, and shows
+command output and error messages in a coloured bar. Saving writes only the file
+text, never the gutter, command line or cursor. On exit the editor reports how
+many lines the file has, and warns when unsaved changes were discarded.
 
 ### Reading the output
 

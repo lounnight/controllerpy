@@ -258,7 +258,7 @@ def test_run_editor_renders_and_handles_a_session(tmp_path):
     assert path.read_text(encoding="utf-8") == "a\nb\n"
     assert screen.frames
     assert "written" in screen.frames[-1].lines[-1]
-    assert any("main.py" in frame.lines[-1] for frame in screen.frames)
+    assert any("main.py" in frame.lines[frame.status_row] for frame in screen.frames)
 
 
 def test_render_layout_and_status(tmp_path):
@@ -268,15 +268,20 @@ def test_render_layout_and_status(tmp_path):
     frame = render(editor, 4, 40)
     assert frame.lines[0] == "  1 | abc"
     assert frame.lines[1] == ""
-    assert "main.py" in frame.lines[-1]
-    assert "Line 1, Col 1" in frame.lines[-1]
-    assert "NORMAL" in frame.lines[-1]
+    assert frame.status_row == 2
+    assert frame.command_row == 3
+    assert "main.py" in frame.lines[frame.status_row]
+    assert "Line 1, Col 1" in frame.lines[frame.status_row]
+    assert "NORMAL" in frame.lines[frame.status_row]
+    assert frame.lines[frame.command_row] == ""
+    assert frame.command_kind == "idle"
     assert frame.cursor_row == 0
     assert frame.cursor_col == 6
 
     editor.message = "hello"
     frame = render(editor, 4, 40)
     assert frame.lines[-1] == " hello"
+    assert frame.command_kind == "message"
 
 
 def test_render_expands_tabs_for_display(tmp_path):
@@ -298,9 +303,9 @@ def test_render_keeps_cursor_visible_while_scrolling(tmp_path):
     editor.row = 40
 
     frame = render(editor, 10, 30)
-    assert editor.top_row == 32
-    assert frame.cursor_row == 8
-    assert "line40" in frame.lines[8]
+    assert editor.top_row == 33
+    assert frame.cursor_row == 7
+    assert "line40" in frame.lines[7]
 
     editor.row = 0
     frame = render(editor, 10, 30)
@@ -502,10 +507,12 @@ def test_render_status_shows_mode(tmp_path):
     path = tmp_path / "main.py"
     editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
 
-    assert "NORMAL" in render(editor, 4, 60).lines[-1]
+    frame = render(editor, 4, 60)
+    assert "NORMAL" in frame.lines[frame.status_row]
 
     editor.handle_key("i")
-    assert "INSERT" in render(editor, 4, 60).lines[-1]
+    frame = render(editor, 4, 60)
+    assert "INSERT" in frame.lines[frame.status_row]
 
 
 def run_prompt(editor: Editor, prompt: str, text: str) -> None:
@@ -844,7 +851,8 @@ def test_render_status_shows_visual_mode(tmp_path):
 
     editor.handle_key("v")
 
-    assert "VISUAL" in render(editor, 4, 60).lines[-1]
+    frame = render(editor, 4, 60)
+    assert "VISUAL" in frame.lines[frame.status_row]
 
 
 def test_highlight_keywords_and_comments():
@@ -978,7 +986,7 @@ def test_render_status_reports_line_and_column(tmp_path):
     editor.col = 3
 
     frame = render(editor, 5, 60)
-    assert "Line 3, Col 4" in frame.lines[-1]
+    assert "Line 3, Col 4" in frame.lines[frame.status_row]
 
 
 def test_render_scrolls_horizontally_to_keep_cursor_visible(tmp_path):
@@ -1020,7 +1028,7 @@ def test_gutter_and_cursor_are_not_written_to_disk(tmp_path, monkeypatch):
     assert path.read_text(encoding="utf-8") == "azlpha\n"
 
 
-
+def test_apply_styles_wraps_spans_with_colour_codes():
     styled = apply_styles("def x", [(0, 3, "keyword")])
 
     assert styled == "\x1b[1;34mdef\x1b[22;39m x"
@@ -1030,7 +1038,7 @@ def test_gutter_and_cursor_are_not_written_to_disk(tmp_path, monkeypatch):
 def test_terminal_draw_emits_style_codes():
     out = io.StringIO()
     terminal = Terminal(stdin=sys.stdin, stdout=out)
-    frame = Frame(["def x"], 0, 0, [[(0, 3, "keyword")]], -1)
+    frame = Frame(["def x"], 0, 0, [[(0, 3, "keyword")]], -1, -1, -1, "idle")
 
     terminal.draw(frame)
 
@@ -1038,6 +1046,105 @@ def test_terminal_draw_emits_style_codes():
     assert "\x1b[1;34m" in rendered
     assert "def" in rendered
     assert "\x1b[0m" in rendered
+
+
+def test_render_command_area_is_its_own_bottom_row(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\n"), disk_version=None)
+
+    frame = render(editor, 6, 40)
+    assert frame.command_row == len(frame.lines) - 1
+    assert frame.status_row == frame.command_row - 1
+    assert frame.lines[frame.command_row] == ""
+    assert frame.lines[frame.status_row] != ""
+    assert frame.command_kind == "idle"
+
+    editor.handle_key(":")
+    editor.handle_key("w")
+    frame = render(editor, 6, 40)
+    assert frame.lines[frame.command_row] == ":w"
+    assert frame.command_kind == "prompt"
+    assert frame.cursor_row == frame.command_row
+    assert frame.cursor_col == 2
+
+
+def test_render_error_message_uses_error_kind(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\n"), disk_version=None)
+
+    run_command(editor, "bogus")
+    frame = render(editor, 4, 60)
+    assert frame.command_kind == "error"
+    assert "Unknown command" in frame.lines[frame.command_row]
+
+    editor.message = "ok"
+    editor.error = False
+    frame = render(editor, 4, 60)
+    assert frame.command_kind == "message"
+
+
+def test_render_command_area_stays_at_the_bottom_on_resize(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("alpha\nbeta\n"), disk_version=None)
+    editor.handle_key(":")
+    editor.handle_key("w")
+
+    for rows, cols in ((4, 20), (8, 60), (3, 10), (2, 12), (1, 8)):
+        frame = render(editor, rows, cols)
+        assert frame.command_row == len(frame.lines) - 1
+        assert frame.cursor_row == frame.command_row
+        assert frame.cursor_col <= cols - 1
+
+    editor.handle_key("escape")
+
+
+def test_render_command_area_does_not_overlap_source(tmp_path):
+    path = tmp_path / "main.py"
+    text = "".join(f"line{i}\n" for i in range(20))
+    editor = Editor(path, TextBuffer.from_text(text), disk_version=None)
+    editor.handle_key(":")
+    editor.handle_key("w")
+
+    frame = render(editor, 6, 40)
+    assert frame.highlight_row == -1
+    assert frame.lines[frame.command_row].startswith(":")
+    for row in range(frame.status_row):
+        assert not frame.lines[row].startswith(":")
+
+
+def test_terminal_draw_styles_the_command_bar():
+    out = io.StringIO()
+    terminal = Terminal(stdin=sys.stdin, stdout=out)
+    frame = Frame(["alpha", "status", ":w"], 2, 2, [[], [], []], -1, 1, 2, "prompt")
+
+    terminal.draw(frame)
+
+    rendered = out.getvalue()
+    assert "\x1b[48;5;24m" in rendered
+    assert "\x1b[1;97m:" in rendered
+    assert "w" in rendered
+
+
+def test_terminal_draw_styles_error_and_message_bars():
+    out = io.StringIO()
+    terminal = Terminal(stdin=sys.stdin, stdout=out)
+    terminal.draw(Frame(["alpha", "status", " bad"], 0, 0, [[], [], []], -1, 1, 2, "error"))
+    assert "\x1b[48;5;124m" in out.getvalue()
+
+    out = io.StringIO()
+    terminal = Terminal(stdin=sys.stdin, stdout=out)
+    terminal.draw(Frame(["alpha", "status", " ok"], 0, 0, [[], [], []], -1, 1, 2, "message"))
+    assert "\x1b[48;5;136m" in out.getvalue()
+
+
+def test_terminal_draw_styles_the_status_bar():
+    out = io.StringIO()
+    terminal = Terminal(stdin=sys.stdin, stdout=out)
+    frame = Frame(["alpha", " main.py", ""], 0, 0, [[], [], []], -1, 1, 2, "idle")
+
+    terminal.draw(frame)
+
+    assert "\x1b[48;5;238m" in out.getvalue()
 
 
 def test_parse_key_reads_named_keys():

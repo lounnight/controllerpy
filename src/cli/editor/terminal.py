@@ -8,7 +8,7 @@ import time
 from typing import List, Optional, TextIO, Tuple
 
 from .keys import parse_key
-from .render import Frame
+from .render import ERROR_KIND, MESSAGE_KIND, PROMPT_KIND, Frame
 from .syntax import Span
 
 __all__ = ["EditorError", "Terminal", "apply_styles"]
@@ -20,6 +20,13 @@ _RESET = "\x1b[0m"
 _CLEAR = "\x1b[2J\x1b[H"
 _CURRENT_LINE = "\x1b[48;5;236m"
 _STYLE_OFF = "\x1b[22;39m"
+
+_STATUS_BAR = "\x1b[48;5;238m\x1b[38;5;252m"
+_IDLE_BAR = "\x1b[48;5;233m\x1b[38;5;245m"
+_COMMAND_BAR = "\x1b[48;5;24m\x1b[38;5;231m"
+_MESSAGE_BAR = "\x1b[48;5;136m\x1b[38;5;231m"
+_ERROR_BAR = "\x1b[48;5;124m\x1b[38;5;231m"
+_PROMPT = "\x1b[1;97m"
 
 _SEQUENCE_WAIT = 0.1
 
@@ -50,6 +57,17 @@ def apply_styles(line: str, spans: List[Span]) -> str:
     pieces.append(line[cursor:])
 
     return "".join(pieces)
+
+
+def _render_command_bar(kind: str, line: str) -> str:
+    if kind == PROMPT_KIND:
+        return f"{_COMMAND_BAR}{_PROMPT}{line[:1]}{_STYLE_OFF}{line[1:]}\x1b[K{_RESET}"
+    if kind == ERROR_KIND:
+        return f"{_ERROR_BAR}{line}\x1b[K{_RESET}"
+    if kind == MESSAGE_KIND:
+        return f"{_MESSAGE_BAR}{line}\x1b[K{_RESET}"
+
+    return f"{_IDLE_BAR}{line}\x1b[K{_RESET}"
 
 
 class EditorError(Exception):
@@ -101,8 +119,14 @@ class Terminal:
         parts = []
         for index, line in enumerate(frame.lines):
             spans = frame.styles[index] if index < len(frame.styles) else []
-            background = _CURRENT_LINE if index == frame.highlight_row else ""
-            parts.append(f"\x1b[{index + 1};1H{background}{apply_styles(line, spans)}\x1b[K{_RESET}")
+            parts.append(f"\x1b[{index + 1};1H")
+            if index == frame.command_row:
+                parts.append(_render_command_bar(frame.command_kind, line))
+            elif index == frame.status_row:
+                parts.append(f"{_STATUS_BAR}{apply_styles(line, spans)}\x1b[K{_RESET}")
+            else:
+                background = _CURRENT_LINE if index == frame.highlight_row else ""
+                parts.append(f"{background}{apply_styles(line, spans)}\x1b[K{_RESET}")
         parts.append(f"\x1b[{len(frame.lines) + 1};1H\x1b[J")
         parts.append(f"\x1b[{frame.cursor_row + 1};{frame.cursor_col + 1}H")
         self._write("".join(parts))
