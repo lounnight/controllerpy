@@ -103,6 +103,7 @@ def test_editor_tracks_dirty_state(tmp_path):
     editor = load_editor(path)
     assert not editor.dirty
 
+    editor.handle_key("i")
     editor.handle_key("x")
     assert editor.dirty
 
@@ -115,6 +116,7 @@ def test_editor_inserts_printable_keys_and_enter(tmp_path):
     path = tmp_path / "main.py"
     editor = new_editor(path)
 
+    editor.handle_key("i")
     for key in "ab":
         editor.handle_key(key)
     editor.handle_key("enter")
@@ -134,17 +136,17 @@ def test_editor_arrow_navigation_stays_inside_the_text(tmp_path):
     editor.handle_key("right")
     editor.handle_key("right")
     editor.handle_key("right")
-    assert (editor.row, editor.col) == (0, 3)
-
-    editor.handle_key("down")
-    assert (editor.row, editor.col) == (1, 2)
-
-    editor.handle_key("down")
-    assert (editor.row, editor.col) == (1, 2)
-
-    editor.handle_key("up")
-    editor.handle_key("up")
     assert (editor.row, editor.col) == (0, 2)
+
+    editor.handle_key("down")
+    assert (editor.row, editor.col) == (1, 1)
+
+    editor.handle_key("down")
+    assert (editor.row, editor.col) == (1, 1)
+
+    editor.handle_key("up")
+    editor.handle_key("up")
+    assert (editor.row, editor.col) == (0, 1)
 
     editor.handle_key("left")
     editor.handle_key("left")
@@ -153,7 +155,7 @@ def test_editor_arrow_navigation_stays_inside_the_text(tmp_path):
     assert (editor.row, editor.col) == (0, 0)
 
     editor.handle_key("end")
-    assert editor.col == 3
+    assert editor.col == 2
     editor.handle_key("home")
     assert editor.col == 0
 
@@ -162,6 +164,7 @@ def test_editor_backspace_and_delete_join_lines(tmp_path):
     path = tmp_path / "main.py"
     editor = Editor(path, TextBuffer.from_text("ab\ncd\n"), disk_version=None)
 
+    editor.handle_key("i")
     editor.handle_key("down")
     editor.handle_key("backspace")
     assert editor.buffer.text() == "abcd\n"
@@ -179,6 +182,7 @@ def test_editor_backspace_and_delete_join_lines(tmp_path):
 def test_editor_ctrl_q_requires_confirmation_when_dirty(tmp_path):
     path = tmp_path / "main.py"
     editor = new_editor(path)
+    editor.handle_key("i")
     editor.handle_key("z")
 
     editor.handle_key("ctrl+q")
@@ -194,6 +198,7 @@ def test_editor_ctrl_q_requires_confirmation_when_dirty(tmp_path):
 def test_editor_ctrl_q_cancels_confirmation_on_other_key(tmp_path):
     path = tmp_path / "main.py"
     editor = new_editor(path)
+    editor.handle_key("i")
     editor.handle_key("z")
     editor.handle_key("ctrl+q")
     editor.handle_key("left")
@@ -241,7 +246,7 @@ def test_editor_reports_write_failure(tmp_path):
 def test_run_editor_renders_and_handles_a_session(tmp_path):
     path = tmp_path / "main.py"
     editor = new_editor(path)
-    screen = FakeScreen(["a", "enter", "b", "ctrl+s", "ctrl+q"])
+    screen = FakeScreen(["i", "a", "enter", "b", "ctrl+s", "ctrl+q"])
 
     run_editor(editor, screen)
 
@@ -261,6 +266,7 @@ def test_render_layout_and_status(tmp_path):
     assert frame.lines[1] == ""
     assert "main.py" in frame.lines[-1]
     assert "1:1" in frame.lines[-1]
+    assert "NORMAL" in frame.lines[-1]
     assert frame.cursor_row == 0
     assert frame.cursor_col == 0
 
@@ -314,6 +320,188 @@ def test_render_clips_to_small_terminals(tmp_path):
     frame = render(editor, 0, 0)
     assert len(frame.lines) == 1
     assert frame.cursor_col == 0
+
+
+def test_editor_starts_normal_and_insert_mode_round_trips(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    assert editor.mode == "normal"
+
+    editor.handle_key("l")
+    editor.handle_key("l")
+    assert (editor.row, editor.col) == (0, 2)
+
+    editor.handle_key("i")
+    assert editor.mode == "insert"
+    editor.handle_key("X")
+
+    editor.handle_key("escape")
+    assert editor.mode == "normal"
+    assert editor.buffer.text() == "abXc\n"
+    assert (editor.row, editor.col) == (0, 2)
+
+
+def test_editor_escape_at_line_start_keeps_column(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key("i")
+    editor.handle_key("escape")
+
+    assert editor.mode == "normal"
+    assert editor.col == 0
+
+
+def test_editor_normal_hjkl_and_arrows_move_the_cursor(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\ndef\n"), disk_version=None)
+
+    editor.handle_key("l")
+    editor.handle_key("l")
+    assert (editor.row, editor.col) == (0, 2)
+
+    editor.handle_key("j")
+    assert (editor.row, editor.col) == (1, 2)
+
+    editor.handle_key("k")
+    assert (editor.row, editor.col) == (0, 2)
+
+    editor.handle_key("h")
+    assert editor.col == 1
+
+    editor.handle_key("right")
+    assert editor.col == 2
+
+    editor.handle_key("down")
+    editor.handle_key("up")
+    assert (editor.row, editor.col) == (0, 2)
+
+
+def test_editor_normal_column_motions(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key("$")
+    assert editor.col == 2
+
+    editor.handle_key("0")
+    assert editor.col == 0
+
+    editor.handle_key("end")
+    assert editor.col == 2
+
+    editor.handle_key("home")
+    assert editor.col == 0
+
+
+def test_editor_normal_word_motions(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("foo bar baz\n"), disk_version=None)
+
+    editor.handle_key("w")
+    assert editor.col == 4
+
+    editor.handle_key("w")
+    assert editor.col == 8
+
+    editor.handle_key("b")
+    assert editor.col == 4
+
+    editor.handle_key("b")
+    assert editor.col == 0
+
+
+def test_editor_normal_gg_moves_to_first_non_blank(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("  aaa\nbbb\nccc\n"), disk_version=None)
+    editor.row = 2
+    editor.col = 2
+
+    editor.handle_key("g")
+    editor.handle_key("g")
+
+    assert (editor.row, editor.col) == (0, 2)
+
+
+def test_editor_normal_x_deletes_the_character_under_the_cursor(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key("l")
+    editor.handle_key("x")
+    assert editor.buffer.text() == "ac\n"
+    assert editor.col == 1
+
+    editor.handle_key("x")
+    assert editor.buffer.text() == "a\n"
+    assert editor.col == 0
+
+
+def test_editor_normal_dd_deletes_lines(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("one\ntwo\nthree\n"), disk_version=None)
+
+    editor.handle_key("d")
+    editor.handle_key("d")
+    assert editor.buffer.text() == "two\nthree\n"
+    assert editor.row == 0
+
+    editor.handle_key("j")
+    editor.handle_key("d")
+    editor.handle_key("d")
+    assert editor.buffer.text() == "two\n"
+
+    editor.handle_key("d")
+    editor.handle_key("d")
+    assert editor.buffer.text() == "\n"
+
+
+def test_editor_normal_undo_restores_previous_state(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key("x")
+    assert editor.buffer.text() == "bc\n"
+
+    editor.handle_key("u")
+    assert editor.buffer.text() == "abc\n"
+
+    editor.handle_key("u")
+    assert "Already at oldest change" in editor.message
+
+
+def test_editor_normal_reports_invalid_sequences(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key("g")
+    editor.handle_key("x")
+
+    assert "Invalid key sequence" in editor.message
+    assert editor.buffer.text() == "abc\n"
+
+
+def test_editor_normal_discards_stale_sequences_after_timeout(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("aaa\nbbb\nccc\n"), disk_version=None)
+    editor.sequence_timeout = -1
+
+    editor.handle_key("g")
+    editor.handle_key("j")
+
+    assert editor.row == 1
+    assert editor.message == ""
+
+
+def test_render_status_shows_mode(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    assert "NORMAL" in render(editor, 4, 60).lines[-1]
+
+    editor.handle_key("i")
+    assert "INSERT" in render(editor, 4, 60).lines[-1]
 
 
 def test_parse_key_reads_named_keys():
@@ -377,7 +565,7 @@ def test_cmd_edit_requires_an_interactive_terminal(tmp_path, capsys):
 
 def test_cmd_edit_creates_and_saves_a_new_file(tmp_path, monkeypatch):
     path = tmp_path / "new.py"
-    monkeypatch.setattr(edit_module, "Terminal", lambda: FakeScreen(["h", "i", "ctrl+s", "ctrl+q"]))
+    monkeypatch.setattr(edit_module, "Terminal", lambda: FakeScreen(["i", "h", "i", "ctrl+s", "ctrl+q"]))
 
     code = main(["edit", str(path)])
 
@@ -399,7 +587,7 @@ def test_cmd_edit_round_trips_a_program_without_changes(tmp_path, monkeypatch):
 def test_cmd_edit_reports_discarded_changes(tmp_path, monkeypatch, capsys):
     path = tmp_path / "main.py"
     path.write_text("a\n", encoding="utf-8")
-    monkeypatch.setattr(edit_module, "Terminal", lambda: FakeScreen(["z", "ctrl+q", "ctrl+q"]))
+    monkeypatch.setattr(edit_module, "Terminal", lambda: FakeScreen(["i", "z", "ctrl+q", "ctrl+q"]))
 
     code = main(["edit", str(path)])
 

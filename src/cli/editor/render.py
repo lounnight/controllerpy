@@ -74,7 +74,7 @@ def _last_line(editor: "Editor", cols: int) -> str:
         return " " + editor.message[: cols - 1]
 
     dirty = " [+]" if editor.dirty else ""
-    position = f"  {editor.row + 1}:{editor.col + 1}"
+    position = f"  {editor.row + 1}:{editor.col + 1}  {editor.mode.upper()}"
     hint = "  ctrl+s save  ctrl+q quit"
     for target in (str(editor.path), editor.path.name):
         line = f" {target}{dirty}{position}{hint}"
