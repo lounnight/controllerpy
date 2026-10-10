@@ -1,6 +1,7 @@
 """The ``controllerpy`` entry point.
 
     controllerpy init [--force]                    write the IDE configuration files
+    controllerpy edit main.py                      edit a file in the terminal
     controllerpy build main.py                     generate build/main.ino
     controllerpy check main.py                     parse and validate only
     controllerpy clean                             remove generated files

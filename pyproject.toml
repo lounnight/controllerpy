@@ -30,7 +30,7 @@ controllerpy = "controllerpy.cli:main"
 [tool.setuptools]
 # ``src/`` *is* the controllerpy package: the directory is mapped to the import
 # name, so the sources stay flat and no nested package directory is needed.
-packages = ["controllerpy", "controllerpy.cli", "controllerpy.cli.commands", "controllerpy.compiler", "controllerpy.compiler.generator", "controllerpy.compiler.validator", "controllerpy.runtime"]
+packages = ["controllerpy", "controllerpy.cli", "controllerpy.cli.commands", "controllerpy.cli.editor", "controllerpy.compiler", "controllerpy.compiler.generator", "controllerpy.compiler.validator", "controllerpy.runtime"]
 package-dir = { controllerpy = "src" }
 
 [tool.setuptools.package-data]

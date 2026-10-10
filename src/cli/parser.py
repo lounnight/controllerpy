@@ -26,6 +26,7 @@ from .commands import (
     cmd_check,
     cmd_clean,
     cmd_compile,
+    cmd_edit,
     cmd_init,
     cmd_ports,
     cmd_stubs,
@@ -47,6 +48,7 @@ DESCRIPTION = "Write Arduino programs in a Python-like subset, and turn them int
 _EPILOG = """\
 examples:
   controllerpy init                     set up IDE support here
+  controllerpy edit main.py             edit a file in the terminal
   controllerpy check main.py            parse and validate, write nothing
   controllerpy build main.py            generate build/main.ino
   controllerpy compile main.py -b uno   generate the sketch and compile it
@@ -85,6 +87,9 @@ _EPILOGS: Dict[str, str] = {
     "init": "examples:\n"
     "  controllerpy init              write controllerpy_api.pyi and pyrightconfig.json\n"
     "  controllerpy init --force      rewrite them, overwriting what is already there",
+    "edit": "examples:\n"
+    "  controllerpy edit main.py      edit a file (created when it does not exist)\n"
+    "  controllerpy edit new.py",
     "build": "examples:\n"
     "  controllerpy build main.py\n"
     "  controllerpy build main.py -o out -v  write to out/, and say what it contains",
@@ -172,6 +177,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="overwrite the generated IDE files if they already exist",
     )
     init.set_defaults(handler=cmd_init)
+
+    edit = _add_command(
+        subparsers,
+        "edit",
+        help="edit a source file in a Vim-like terminal editor",
+    )
+    edit.add_argument("source", help="file to edit, e.g. main.py (created when it does not exist)")
+    edit.set_defaults(handler=cmd_edit)
 
     _add_source_command(
         subparsers, "build", help_text="generate the Arduino sketch (no toolchain needed)", handler=cmd_build
