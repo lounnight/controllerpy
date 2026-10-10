@@ -31,9 +31,13 @@ def render(editor: "Editor", rows: int, cols: int) -> Frame:
             lines.append(_visible(editor.buffer.line(source_row), editor.left_col, cols))
     lines.append(_last_line(editor, cols))
 
-    screen_row = max(0, min(editor.row - editor.top_row, len(lines) - 1))
-    screen_col = _screen_column(editor.buffer.line(editor.row), editor.col) - editor.left_col
-    screen_col = max(0, min(screen_col, cols - 1))
+    if editor.mode == "command":
+        screen_row = len(lines) - 1
+        screen_col = max(0, min(1 + len(editor.command), cols - 1))
+    else:
+        screen_row = max(0, min(editor.row - editor.top_row, len(lines) - 1))
+        screen_col = _screen_column(editor.buffer.line(editor.row), editor.col) - editor.left_col
+        screen_col = max(0, min(screen_col, cols - 1))
 
     return Frame(lines, screen_row, screen_col)
 
@@ -70,12 +74,15 @@ def _visible(line: str, left_col: int, cols: int) -> str:
 
 
 def _last_line(editor: "Editor", cols: int) -> str:
+    if editor.mode == "command":
+        return ":" + editor.command[: cols - 1]
+
     if editor.message:
         return " " + editor.message[: cols - 1]
 
     dirty = " [+]" if editor.dirty else ""
     position = f"  {editor.row + 1}:{editor.col + 1}  {editor.mode.upper()}"
-    hint = "  ctrl+s save  ctrl+q quit"
+    hint = "  ctrl+s save  ctrl+q quit  : command"
     for target in (str(editor.path), editor.path.name):
         line = f" {target}{dirty}{position}{hint}"
         if len(line) <= cols:

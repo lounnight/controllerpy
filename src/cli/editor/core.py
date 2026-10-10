@@ -15,6 +15,7 @@ DiskVersion = Optional[Tuple[int, int]]
 UNDO_LIMIT = 500
 SEQUENCE_TIMEOUT = 1.0
 
+MODE_COMMAND = "command"
 MODE_INSERT = "insert"
 MODE_NORMAL = "normal"
 
@@ -41,6 +42,7 @@ class Editor:
         self.left_col = 0
         self.mode = MODE_NORMAL
         self.message = ""
+        self.command = ""
         self.running = True
         self.discarded = False
         self.pending: Optional[str] = None
@@ -77,6 +79,11 @@ class Editor:
 
         if self.pending:
             self.pending = None
+
+        if self.mode == MODE_COMMAND:
+            self._handle_command(key)
+
+            return
 
         if self.mode == MODE_INSERT:
             self._handle_insert(key)
@@ -175,9 +182,106 @@ class Editor:
             self._delete_char_under_cursor()
         elif key == "u":
             self._undo()
+        elif key == ":":
+            self.mode = MODE_COMMAND
+            self.command = ""
 
         line = self.buffer.line(self.row)
         self.col = min(self.col, max(0, len(line) - 1))
+
+    def _handle_command(self, key: str) -> None:
+        if key == "escape":
+            self.mode = MODE_NORMAL
+            self.command = ""
+
+            return
+
+        if key == "enter":
+            command = self.command
+            self.mode = MODE_NORMAL
+            self.command = ""
+            self._run_command(command)
+
+            return
+
+        if key == "backspace":
+            if self.command:
+                self.command = self.command[:-1]
+            else:
+                self.mode = MODE_NORMAL
+
+            return
+
+        if len(key) == 1 and key.isprintable():
+            self.command += key
+
+    def _run_command(self, command: str) -> None:
+        text = command.strip()
+        if not text:
+            return
+
+        if text in ("w", "w!"):
+            self.save(force=text.endswith("!"))
+
+            return
+
+        if text in ("q", "q!"):
+            if text == "q!" or not self.dirty:
+                self.running = False
+                self.discarded = self.dirty
+
+                return
+
+            self.message = "No write since last change (add ! to override)"
+
+            return
+
+        if text in ("wq", "wq!", "x"):
+            if not self.save(force=text.endswith("!")):
+                return
+
+            self.running = False
+
+            return
+
+        if text in ("e", "e!"):
+            self._reload()
+
+            return
+
+        if text == "$":
+            self.row = self.buffer.line_count - 1
+            self.col = min(self.col, max(0, len(self.buffer.line(self.row)) - 1))
+
+            return
+
+        if text.isdigit():
+            self.row = max(0, min(int(text) - 1, self.buffer.line_count - 1))
+            self.col = min(self.col, max(0, len(self.buffer.line(self.row)) - 1))
+
+            return
+
+        self.message = f"Unknown command: {text}"
+
+    def _reload(self) -> None:
+        try:
+            with open(self.path, "r", encoding="utf-8", newline="") as handle:
+                text = handle.read()
+        except FileNotFoundError:
+            self.message = f"Cannot read {self.path}: no such file"
+
+            return
+        except OSError as exc:
+            self.message = f"Cannot read {self.path}: {exc.strerror or exc}"
+
+            return
+
+        self.buffer = TextBuffer.from_text(text)
+        self._saved = self.buffer.snapshot()
+        self.disk_version = _disk_version(self.path)
+        self.row = 0
+        self.col = 0
+        self._undo_stack.clear()
 
     def _finish_sequence(self, key: str) -> None:
         sequence = self.sequence

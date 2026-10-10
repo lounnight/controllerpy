@@ -504,6 +504,135 @@ def test_render_status_shows_mode(tmp_path):
     assert "INSERT" in render(editor, 4, 60).lines[-1]
 
 
+def run_command(editor: Editor, text: str) -> None:
+    editor.handle_key(":")
+    for char in text:
+        editor.handle_key(char)
+    editor.handle_key("enter")
+
+
+def test_editor_command_save_writes_the_file(tmp_path):
+    path = tmp_path / "main.py"
+    editor = new_editor(path)
+    editor.handle_key("i")
+    editor.handle_key("x")
+    editor.handle_key("escape")
+
+    run_command(editor, "w")
+
+    assert editor.mode == "normal"
+    assert not editor.dirty
+    assert path.read_text(encoding="utf-8") == "x\n"
+
+
+def test_editor_command_quit_refuses_when_dirty(tmp_path):
+    path = tmp_path / "main.py"
+    editor = new_editor(path)
+    editor.handle_key("i")
+    editor.handle_key("x")
+    editor.handle_key("escape")
+
+    run_command(editor, "q")
+
+    assert editor.running
+    assert "No write since last change" in editor.message
+
+
+def test_editor_command_force_quit_discards_changes(tmp_path):
+    path = tmp_path / "main.py"
+    editor = new_editor(path)
+    editor.handle_key("i")
+    editor.handle_key("x")
+    editor.handle_key("escape")
+
+    run_command(editor, "q!")
+
+    assert not editor.running
+    assert editor.discarded
+    assert not path.exists()
+
+
+def test_editor_command_write_quit_saves_and_exits(tmp_path):
+    path = tmp_path / "main.py"
+    editor = new_editor(path)
+    editor.handle_key("i")
+    editor.handle_key("x")
+    editor.handle_key("escape")
+
+    run_command(editor, "wq")
+
+    assert not editor.running
+    assert not editor.discarded
+    assert path.read_text(encoding="utf-8") == "x\n"
+
+
+def test_editor_command_goto_line_and_last_line(tmp_path):
+    path = tmp_path / "main.py"
+    text = "".join(f"line{i}\n" for i in range(1, 6))
+    editor = Editor(path, TextBuffer.from_text(text), disk_version=None)
+
+    run_command(editor, "4")
+    assert editor.row == 3
+    assert editor.col == 0
+
+    run_command(editor, "$")
+    assert editor.row == 4
+
+
+def test_editor_command_unknown_reports_message(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    run_command(editor, "frobnicate")
+
+    assert "Unknown command" in editor.message
+
+
+def test_editor_command_escape_cancels(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key(":")
+    editor.handle_key("w")
+    assert editor.mode == "command"
+
+    editor.handle_key("escape")
+
+    assert editor.mode == "normal"
+    assert editor.command == ""
+
+
+def test_editor_command_backspace_edits_and_exits_when_empty(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key(":")
+    editor.handle_key("w")
+    editor.handle_key("x")
+    editor.handle_key("backspace")
+    assert editor.command == "w"
+
+    editor.handle_key("backspace")
+    assert editor.command == ""
+
+    editor.handle_key("backspace")
+    assert editor.command == ""
+    assert editor.mode == "normal"
+
+
+def test_render_command_line_positions_cursor(tmp_path):
+    path = tmp_path / "main.py"
+    editor = Editor(path, TextBuffer.from_text("abc\n"), disk_version=None)
+
+    editor.handle_key(":")
+    editor.handle_key("w")
+
+    frame = render(editor, 4, 40)
+    assert frame.lines[-1] == ":w"
+    assert frame.cursor_row == 3
+    assert frame.cursor_col == 2
+
+
 def test_parse_key_reads_named_keys():
     assert parse_key(b"a") == ("a", 1)
     assert parse_key(b"\x13") == ("ctrl+s", 1)
